@@ -1,0 +1,6 @@
+build/
+.vscode/
+.DS_Store
+*.o
+adaptive-search-engine
+
