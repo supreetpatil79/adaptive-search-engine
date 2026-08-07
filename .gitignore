@@ -1,6 +1,18 @@
+# Build directories
 build/
-.vscode/
-.DS_Store
+build-*/
 *.o
-adaptive-search-engine
+*.dylib
+*.so
+*.exe
 
+# Models and Binary Data
+models/
+data/embeddings*.bin
+data/corpus_10k.txt
+third_party/
+
+# System / IDE
+.DS_Store
+.vscode/
+.idea/

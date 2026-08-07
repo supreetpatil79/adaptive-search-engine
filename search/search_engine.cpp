@@ -1,57 +1,83 @@
 #include "search_engine.h"
-#include <cmath>
-#include <algorithm>
+#include "../tokenizer/tokenizer.h"
 
-vector<SearchResult> SearchEngine::search(const string& query) {
-    // 1. Check Cache first (Standard MAANG Optimization)
-    if (cache.exists(query)) {
-        return cache.get(query);
+SearchEngine::SearchEngine(int cacheCapacity)
+    : cache(cacheCapacity) {}
+
+void SearchEngine::addDocument(int docId, const std::string& content) {
+    std::vector<std::string> tokens = Tokenizer::tokenize(content);
+    tokens = Tokenizer::removeStopWords(tokens);
+
+    Document doc{docId, content, tokens};
+    index.addDocument(doc);
+}
+
+void SearchEngine::finalizeIndex() {
+    index.finalize();
+}
+
+std::vector<SearchResult> SearchEngine::search(const std::string& query, int topK) {
+    std::vector<SearchResult> cached;
+    if (cache.get(query, cached)) {
+        return cached;
     }
 
-    auto tokens = tokenizer::tokenize(query);
-    unordered_map<int, double> docScores; 
+    std::vector<SearchResult> results = ranker.search(query, index, topK);
 
-    // 2. Retrieval Phase
-    for (const auto& token : tokens) {
-        // getPostings should return vector<pair<int, int>> -> {docID, freqInDoc}
-        auto postings = index.getPostings(token);
-        int df = postings.size(); // Document Frequency for this token
-
-        for (auto& p : postings) {
-            int docId = p.first;
-            int tf = p.second; // Pre-calculated raw term frequency
-
-            // Calculate BM25 score for this specific term-doc pair
-            double termScore = bm25.score(
-                tf, 
-                df, 
-                index.getTotalDocs(), 
-                index.getDocLength(docId), 
-                index.getAvgDocLength()
-            );
-            
-            docScores[docId] += termScore;
+    bool anyBoost = false;
+    for (auto& r : results) {
+        double boost = userProfile.getBoost(r.docId);
+        if (boost > 0.0) {
+            r.score *= (1.0 + boost);
+            anyBoost = true;
         }
     }
-
-    // 3. Adaptive Ranking Phase (The "Different" Part)
-    vector<SearchResult> results;
-    for (auto const& [docId, baseScore] : docScores) {
-        // Get user signals (Dwell time and Clicks)
-        double clickScore = user ? user->getClickScore(docId) : 0.0;
-        double dwellScore = user ? user->getDwellScore(docId) : 0.0;
-
-        // AdaptiveRanker combines BM25 with behavioral signals
-        double finalScore = AdaptiveRanker::score(baseScore, clickScore, dwellScore);
-        
-        results.push_back({docId, finalScore});
+    if (anyBoost) {
+        std::sort(results.begin(), results.end());
     }
-
-    // 4. Sort and Return
-    sort(results.begin(), results.end(), [](const SearchResult& a, const SearchResult& b) {
-        return a.score > b.score;
-    });
 
     cache.put(query, results);
     return results;
+}
+
+std::vector<SearchResult> SearchEngine::searchWAND(const std::string& query, int topK, WANDStats* stats) {
+    std::vector<std::string> queryTokens = Tokenizer::tokenize(query);
+    queryTokens = Tokenizer::removeStopWords(queryTokens);
+
+    std::vector<SearchResult> results = wandScorer.search(queryTokens, index, topK, stats);
+
+    bool anyBoost = false;
+    for (auto& r : results) {
+        double boost = userProfile.getBoost(r.docId);
+        if (boost > 0.0) {
+            r.score *= (1.0 + boost);
+            anyBoost = true;
+        }
+    }
+    if (anyBoost) {
+        std::sort(results.begin(), results.end());
+    }
+
+    return results;
+}
+
+std::vector<SearchResult> SearchEngine::searchPhrase(const std::string& phraseQuery) {
+    std::vector<std::string> phraseTokens = Tokenizer::tokenize(phraseQuery);
+    // Don't remove stop words for phrase search to preserve exact sequence!
+
+    std::vector<int> docIds = index.phraseSearch(phraseTokens);
+    std::vector<SearchResult> results;
+
+    for (int docId : docIds) {
+        const Document* doc = index.getDocument(docId);
+        if (doc) {
+            results.push_back(SearchResult{docId, 1.0, doc->content});
+        }
+    }
+
+    return results;
+}
+
+void SearchEngine::recordClick(int docId) {
+    userProfile.recordClick(docId);
 }

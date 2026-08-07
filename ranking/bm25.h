@@ -2,26 +2,29 @@
 #define BM25_H
 
 #include <cmath>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <string>
 
 class BM25 {
 public:
-    // Constructor with parameters k1 (term frequency saturation) and b (length normalization)
-    BM25(double k1 = 1.5, double b = 0.75);
-    
-    // Add a document and its length for length normalization
-    void addDocument(int docId, int length);
-    
-    // Calculate BM25 score for a single term in a document
-    double score(int tf, int df, int totalDocs, int docId);
-    
+    // k1: term-frequency saturation (typically 1.2–2.0)
+    // b:  length normalization (0 = no normalization, 1 = full)
+    explicit BM25(double k1 = 1.5, double b = 0.75);
+
+    // Score a single term occurrence in a document.
+    // All length information passed explicitly — caller owns the index.
+    double score(int termFreq,
+                 int docFreq,
+                 int totalDocs,
+                 int docLength,
+                 double avgDocLength) const;
+
 private:
-    double k1;           // Term frequency saturation parameter
-    double b;            // Length normalization parameter
-    double avgDocLen;    // Average document length
-    std::unordered_map<int, int> docLen;  // Document lengths
+    double k1;
+    double b;
+
+    double idf(int docFreq, int totalDocs) const;
 };
 
 #endif // BM25_H

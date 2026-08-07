@@ -1,46 +1,151 @@
-cmake_minimum_required(VERSION 3.10)
-project(adaptive-search-engine)
+cmake_minimum_required(VERSION 3.14)
+project(adaptive-search-engine VERSION 0.2.0 LANGUAGES CXX)
 
-# Set C++ standard
+# ── Language standard ──────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Add compiler warnings
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-Wall -Wextra -pedantic)
+# ── Compiler warnings ──────────────────────────────────────────────────────
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    add_compile_options(
+        -Wall -Wextra -Wpedantic
+        -Wshadow
+        -Wno-unused-parameter
+    )
 endif()
 
-# Source files
-set(SOURCES
-    src/main_simple.cpp
+# ── Sanitizers (Debug only) ────────────────────────────────────────────────
+option(ENABLE_SANITIZERS "Build with ASan + UBSan" OFF)
+if(ENABLE_SANITIZERS AND NOT MSVC)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
+# ── ONNX Runtime ──────────────────────────────────────────────────────────
+# Prebuilt SDK downloaded to third_party/onnxruntime-osx-arm64-1.28.0/
+set(ORT_ROOT "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-osx-arm64-1.28.0")
+set(ORT_INCLUDE_DIR "${ORT_ROOT}/include")
+set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.dylib")
+
+if(NOT EXISTS "${ORT_INCLUDE_DIR}/onnxruntime_cxx_api.h")
+    message(FATAL_ERROR "ONNX Runtime headers not found at ${ORT_INCLUDE_DIR}.\n"
+            "Run: ./scripts/setup_ort.sh  or download manually.")
+endif()
+
+# ── Core engine sources (no ORT dependency) ────────────────────────────────
+set(CORE_SOURCES
+    ranking/bm25.cpp
+    ranking/tfidf.cpp
+    ranking/wand_scorer.cpp
+    index/inverted_index.cpp
+    index/concurrent_index.cpp
+    index/segment_builder.cpp
+    tokenizer/tokenizer.cpp
+    adaptive/adaptive_ranker.cpp
+    adaptive/user_profile.cpp
+    search/search_engine.cpp
+    utils/file_loader.cpp
 )
 
-# Header files (for reference, not required for compilation)
-set(HEADERS
-    tokenizer/tokenizer.h
-    adaptive/adaptive_ranker.h
-    index/inverted_index.h
-    ranking/bm25.h
-    ranking/tfidf.h
-    utils/file_loader.h
+# ── Embed module sources (require ORT) ────────────────────────────────────
+set(EMBED_SOURCES
+    embed/flat_embed_index.cpp
+    embed/ort_embedder.cpp
+    embed/rrf_fusion.cpp
 )
 
-# Include directories
-include_directories(
+# ── Include directories ────────────────────────────────────────────────────
+set(ENGINE_INCLUDES
+    ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/adaptive
+    ${CMAKE_SOURCE_DIR}/cache
+    ${CMAKE_SOURCE_DIR}/embed
     ${CMAKE_SOURCE_DIR}/index
     ${CMAKE_SOURCE_DIR}/ranking
-    ${CMAKE_SOURCE_DIR}/utils
+    ${CMAKE_SOURCE_DIR}/search
     ${CMAKE_SOURCE_DIR}/tokenizer
+    ${CMAKE_SOURCE_DIR}/utils
+    ${ORT_INCLUDE_DIR}
 )
 
-# Create executable
-add_executable(${PROJECT_NAME} ${SOURCES})
+# ── Main executable ────────────────────────────────────────────────────────
+add_executable(${PROJECT_NAME}
+    src/main.cpp
+    ${CORE_SOURCES}
+    ${EMBED_SOURCES}
+)
+target_include_directories(${PROJECT_NAME} PRIVATE ${ENGINE_INCLUDES})
+target_link_libraries(${PROJECT_NAME} PRIVATE "${ORT_LIB}")
 
-# Installation
+# Copy libonnxruntime.dylib next to the binary so it can be found at runtime.
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ORT_LIB}"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/libonnxruntime.dylib"
+    COMMENT "Copying libonnxruntime.dylib alongside executable"
+)
+
+# ── Benchmark: WAND Pruning vs Unpruned ────────────────────────────────────
+add_executable(benchmark_pruning
+    bench/benchmark_pruning.cpp
+    ${CORE_SOURCES}
+)
+target_include_directories(benchmark_pruning PRIVATE ${ENGINE_INCLUDES})
+
+# ── Benchmark: Query Throughput QPS ────────────────────────────────────────
+add_executable(benchmark_throughput
+    bench/benchmark_throughput.cpp
+    ${CORE_SOURCES}
+)
+target_include_directories(benchmark_throughput PRIVATE ${ENGINE_INCLUDES})
+
+# ── Test: Multi-threaded Concurrency & Stress Test ─────────────────────────
+add_executable(test_concurrency
+    tests/test_concurrency.cpp
+    ${CORE_SOURCES}
+)
+target_include_directories(test_concurrency PRIVATE ${ENGINE_INCLUDES})
+
+# ── Evaluation: NDCG@10 Evaluator ───────────────────────────────────────────
+add_executable(evaluator
+    eval/evaluator.cpp
+    query/stemmer.cpp
+    query/spell_checker.cpp
+    ${CORE_SOURCES}
+    ${EMBED_SOURCES}
+)
+target_include_directories(evaluator PRIVATE ${ENGINE_INCLUDES})
+target_link_libraries(evaluator PRIVATE "${ORT_LIB}")
+
+# Copy libonnxruntime.dylib next to evaluator binary
+add_custom_command(TARGET evaluator POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ORT_LIB}"
+        "$<TARGET_FILE_DIR:evaluator>/libonnxruntime.dylib"
+    COMMENT "Copying libonnxruntime.dylib alongside evaluator"
+)
+
+# ── Test: RRF unit tests (no ORT — tests pure fusion logic) ───────────────
+add_executable(test_rrf
+    tests/test_rrf.cpp
+    embed/rrf_fusion.cpp
+    adaptive/adaptive_ranker.cpp
+    adaptive/user_profile.cpp
+    ranking/bm25.cpp
+    ranking/tfidf.cpp
+    index/inverted_index.cpp
+    tokenizer/tokenizer.cpp
+    utils/file_loader.cpp
+)
+target_include_directories(test_rrf PRIVATE ${ENGINE_INCLUDES})
+# test_rrf does not link ORT — it only tests RRFFusion which has no ORT dep.
+
+# ── Installation ───────────────────────────────────────────────────────────
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)
 
-# Print configuration
-message(STATUS "C++ Compiler: ${CMAKE_CXX_COMPILER}")
-message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+# ── Build info ────────────────────────────────────────────────────────────
+message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "ORT include : ${ORT_INCLUDE_DIR}")
+message(STATUS "ORT lib     : ${ORT_LIB}")
+message(STATUS "Sanitizers  : ${ENABLE_SANITIZERS}")
