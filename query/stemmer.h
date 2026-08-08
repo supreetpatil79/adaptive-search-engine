@@ -1,21 +1,16 @@
-#ifndef STEMMER_H
-#define STEMMER_H
-
+#pragma once
 #include <string>
 
-// Porter Stemming Algorithm implementation for search recall enhancement.
-
+// Full Porter Stemmer (Steps 1a–5b).
+// Usage: Stemmer::stem("generalization") → "general"
 class Stemmer {
 public:
-    // Stems an English word to its root form (e.g., "transformed" -> "transform")
     static std::string stem(const std::string& word);
 
-private:
-    static bool isConsonant(const std::string& str, int i);
-    static int getMeasure(const std::string& str);
-    static bool vowelInStem(const std::string& str);
-    static bool doubleConsonant(const std::string& str, int i);
-    static bool cvc(const std::string& str, int i);
+    // Exposed for use by stemmer.cpp static helpers and unit tests
+    static bool isConsonant(const std::string& s, int i);
+    static int  getMeasure(const std::string& s);
+    static bool vowelInStem(const std::string& s);
+    static bool doubleConsonant(const std::string& s, int i);
+    static bool cvc(const std::string& s, int i);
 };
-
-#endif // STEMMER_H

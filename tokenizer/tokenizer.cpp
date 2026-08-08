@@ -1,4 +1,5 @@
 #include "tokenizer.h"
+#include "../query/stemmer.h"
 
 std::set<std::string> Tokenizer::getStopWords() {
     return {
@@ -52,4 +53,13 @@ std::vector<std::string> Tokenizer::removeStopWords(const std::vector<std::strin
     }
     
     return filtered;
+}
+
+std::vector<std::string> Tokenizer::tokenizeAndStem(const std::string& text) {
+    // Tokenise → remove stop words → Porter-stem each surviving token
+    auto tokens = removeStopWords(tokenize(text));
+    for (auto& t : tokens) {
+        t = Stemmer::stem(t);
+    }
+    return tokens;
 }

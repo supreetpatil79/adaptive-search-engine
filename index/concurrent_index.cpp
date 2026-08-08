@@ -7,13 +7,8 @@ void ConcurrentInvertedIndex::addDocument(const Document& doc) {
 
 void ConcurrentInvertedIndex::mergeSegment(const InvertedIndex& segment) {
     std::unique_lock<std::shared_mutex> lock(rwLock);
-    int total = segment.getTotalDocuments();
-    for (int id = 1; id <= total; ++id) {
-        const Document* doc = segment.getDocument(id);
-        if (doc) {
-            index.addDocument(*doc);
-        }
-    }
+    // Direct posting-list merge — no re-tokenisation, O(terms) not O(docs).
+    index.mergePostingsFrom(segment);
 }
 
 void ConcurrentInvertedIndex::finalize() {

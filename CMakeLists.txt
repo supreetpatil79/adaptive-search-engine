@@ -42,6 +42,8 @@ set(CORE_SOURCES
     index/concurrent_index.cpp
     index/segment_builder.cpp
     tokenizer/tokenizer.cpp
+    query/stemmer.cpp
+    query/spell_checker.cpp
     adaptive/adaptive_ranker.cpp
     adaptive/user_profile.cpp
     search/search_engine.cpp
@@ -51,6 +53,7 @@ set(CORE_SOURCES
 # ── Embed module sources (require ORT) ────────────────────────────────────
 set(EMBED_SOURCES
     embed/flat_embed_index.cpp
+    embed/hnsw_index.cpp
     embed/ort_embedder.cpp
     embed/rrf_fusion.cpp
 )
@@ -62,6 +65,7 @@ set(ENGINE_INCLUDES
     ${CMAKE_SOURCE_DIR}/cache
     ${CMAKE_SOURCE_DIR}/embed
     ${CMAKE_SOURCE_DIR}/index
+    ${CMAKE_SOURCE_DIR}/query
     ${CMAKE_SOURCE_DIR}/ranking
     ${CMAKE_SOURCE_DIR}/search
     ${CMAKE_SOURCE_DIR}/tokenizer
@@ -110,8 +114,6 @@ target_include_directories(test_concurrency PRIVATE ${ENGINE_INCLUDES})
 # ── Evaluation: NDCG@10 Evaluator ───────────────────────────────────────────
 add_executable(evaluator
     eval/evaluator.cpp
-    query/stemmer.cpp
-    query/spell_checker.cpp
     ${CORE_SOURCES}
     ${EMBED_SOURCES}
 )
@@ -130,19 +132,22 @@ add_custom_command(TARGET evaluator POST_BUILD
 add_executable(test_rrf
     tests/test_rrf.cpp
     embed/rrf_fusion.cpp
-    adaptive/adaptive_ranker.cpp
-    adaptive/user_profile.cpp
-    ranking/bm25.cpp
-    ranking/tfidf.cpp
-    index/inverted_index.cpp
-    tokenizer/tokenizer.cpp
-    utils/file_loader.cpp
+    ${CORE_SOURCES}
 )
 target_include_directories(test_rrf PRIVATE ${ENGINE_INCLUDES})
 # test_rrf does not link ORT — it only tests RRFFusion which has no ORT dep.
 
 # ── Installation ───────────────────────────────────────────────────────────
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)
+
+# ── CTest integration ─────────────────────────────────────────────────────
+# Run: cmake --build build && ctest --test-dir build --output-on-failure
+enable_testing()
+add_test(NAME rrf_unit_tests   COMMAND test_rrf)
+add_test(NAME concurrency_test COMMAND test_concurrency)
+# Both tests need data/documents.txt — run from the project root
+set_tests_properties(rrf_unit_tests   PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(concurrency_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 30)
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

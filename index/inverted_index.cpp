@@ -187,3 +187,32 @@ int InvertedIndex::getDocLength(int docId) const {
     }
     return 0;
 }
+
+std::vector<std::string> InvertedIndex::getVocabulary() const {
+    std::vector<std::string> vocab;
+    vocab.reserve(postingsMap.size());
+    for (const auto& [term, _] : postingsMap) {
+        vocab.push_back(term);
+    }
+    return vocab;
+}
+
+// Merge all posting data from 'other' directly — no re-tokenisation.
+// Called by SegmentBuilder to combine thread-local segments efficiently.
+void InvertedIndex::mergePostingsFrom(const InvertedIndex& other) {
+    // Merge document metadata
+    for (const auto& [id, doc] : other.documents) {
+        documents[id] = doc;
+        docLengths[id] = other.getDocLength(id);
+    }
+
+    // Merge posting lists, legacy docId sets, and term frequencies
+    for (const auto& [term, otherPostings] : other.postingsMap) {
+        auto& myPostings = postingsMap[term];
+        for (const auto& p : otherPostings) {
+            myPostings.push_back(p);
+            index[term].insert(p.docId);
+            termFrequencies[term][p.docId] = p.tf;
+        }
+    }
+}

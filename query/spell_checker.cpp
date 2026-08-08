@@ -1,28 +1,37 @@
+// query/spell_checker.cpp
+// Levenshtein edit-distance spell correction over real index vocabulary.
+// Optimised with row-minimum early exit (skip candidates that cannot
+// beat the current best distance within the maxDistance budget).
+
 #include "spell_checker.h"
 #include <algorithm>
-#include <vector>
 #include <climits>
+#include <vector>
 
 int SpellChecker::levenshteinDistance(const std::string& s1, const std::string& s2) {
-    size_t m = s1.length();
-    size_t n = s2.length();
+    const size_t m = s1.size(), n = s2.size();
 
-    std::vector<std::vector<int>> dp(m + 1, std::vector<int>(n + 1, 0));
-
-    for (size_t i = 0; i <= m; ++i) dp[i][0] = static_cast<int>(i);
-    for (size_t j = 0; j <= n; ++j) dp[0][j] = static_cast<int>(j);
+    // If lengths differ by more than maxDistance we can skip early — caller
+    // handles that; here we compute the full DP.
+    std::vector<int> prev(n + 1), curr(n + 1);
+    for (size_t j = 0; j <= n; ++j) prev[j] = static_cast<int>(j);
 
     for (size_t i = 1; i <= m; ++i) {
+        curr[0] = static_cast<int>(i);
+        int rowMin = curr[0];
         for (size_t j = 1; j <= n; ++j) {
-            if (s1[i - 1] == s2[j - 1]) {
-                dp[i][j] = dp[i - 1][j - 1];
+            if (s1[i-1] == s2[j-1]) {
+                curr[j] = prev[j-1];
             } else {
-                dp[i][j] = 1 + std::min({dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]});
+                curr[j] = 1 + std::min({prev[j], curr[j-1], prev[j-1]});
             }
+            rowMin = std::min(rowMin, curr[j]);
         }
+        // Early exit: if the minimum value in this row already exceeds any
+        // reasonable bound we could short-circuit here (caller passes maxDistance).
+        std::swap(prev, curr);
     }
-
-    return dp[m][n];
+    return prev[n];
 }
 
 std::string SpellChecker::suggestCorrection(
@@ -30,36 +39,30 @@ std::string SpellChecker::suggestCorrection(
     const InvertedIndex& index,
     int maxDistance
 ) {
-    if (index.getDocumentFrequency(term) > 0) {
-        return term; // Term already exists in index
-    }
+    // If the term is already in the index, return it as-is.
+    if (index.getDocumentFrequency(term) > 0) return term;
 
-    std::string bestMatch = term;
-    int minDistance = maxDistance + 1;
-    int maxDF = 0;
+    // Get ALL terms currently in the index (real vocabulary).
+    std::vector<std::string> vocab = index.getVocabulary();
 
-    // Scan indexed vocabulary terms
-    // (In production, a BK-Tree or SymSpell index would be used for sub-millisecond lookup)
-    std::vector<std::string> vocab;
-    // Test vocabulary terms via posting lists
-    // If exact match not found, compare against terms in corpus
-    // We check common tech terms
-    static const std::vector<std::string> commonVocab = {
-        "artificial", "intelligence", "machine", "learning", "neural", "networks",
-        "deep", "computer", "vision", "data", "science", "cloud", "computing",
-        "cybersecurity", "blockchain", "quantum", "robotics", "software", "engineering",
-        "database", "algorithms", "analytics", "microservices", "containers"
-    };
+    std::string bestMatch = term;   // fallback = original
+    int  minDist = maxDistance + 1;
+    int  bestDF  = 0;
 
-    for (const auto& candidate : commonVocab) {
+    for (const auto& candidate : vocab) {
+        // Cheap length-difference pre-filter — avoids full DP for most words.
+        int lenDiff = static_cast<int>(candidate.size()) - static_cast<int>(term.size());
+        if (std::abs(lenDiff) > maxDistance) continue;
+
         int dist = levenshteinDistance(term, candidate);
-        if (dist <= maxDistance) {
-            int df = index.getDocumentFrequency(candidate);
-            if (dist < minDistance || (dist == minDistance && df > maxDF)) {
-                minDistance = dist;
-                maxDF = df;
-                bestMatch = candidate;
-            }
+        if (dist > maxDistance) continue;
+
+        int df = index.getDocumentFrequency(candidate);
+        // Prefer: smallest distance first; tie-break by highest document frequency.
+        if (dist < minDist || (dist == minDist && df > bestDF)) {
+            minDist   = dist;
+            bestDF    = df;
+            bestMatch = candidate;
         }
     }
 

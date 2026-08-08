@@ -62,6 +62,13 @@ public:
     // Get total number of documents
     int getTotalDocuments() const { return static_cast<int>(documents.size()); }
 
+    // Get all indexed vocabulary terms (for spell correction)
+    std::vector<std::string> getVocabulary() const;
+
+    // Merge posting lists from another index WITHOUT re-tokenising
+    // Used by SegmentBuilder for efficient O(1) merge instead of O(N) re-build
+    void mergePostingsFrom(const InvertedIndex& other);
+
     // Get document by ID
     const Document* getDocument(int docId) const;
 

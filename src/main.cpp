@@ -1,43 +1,51 @@
 // main.cpp — Adaptive Search Engine entry point
 //
 // Module call chain:
-//   FileLoader      → loads corpus
-//   Tokenizer       → tokenise + stop-word removal (inside FileLoader)
-//   InvertedIndex   → posting lists (inside SearchEngine::addDocument)
-//   BM25 + TFIDF    → lexical scoring (inside AdaptiveRanker)
-//   LRUCache        → query-result cache (inside SearchEngine)
-//   UserProfile     → click-boost personalisation
-//   SearchEngine    → lexical façade
+//   FileLoader          → loads corpus
+//   Tokenizer           → tokenise + stop-word removal + Porter stemming
+//   InvertedIndex       → positional posting lists with skip pointers
+//   BM25 + TFIDF        → lexical scoring (inside AdaptiveRanker)
+//   WANDScorer          → top-K WAND pruning for lexical retrieval
+//   SpellChecker        → Levenshtein correction against real index vocabulary
+//   LRUCache            → 128-slot query-result cache
+//   UserProfile         → click-boost personalisation
+//   SearchEngine        → lexical façade (spell-correct → stem → BM25 → cache)
 //
-//   FlatEmbedIndex  → brute-force cosine similarity over pre-computed vecs
-//   OrtEmbedder     → encode query to 384-d unit vector via ONNX Runtime
-//   RRFFusion       → Reciprocal Rank Fusion (k=60) of BM25 + dense lists
+//   HNSWIndex           → O(log N) approximate nearest-neighbor dense retrieval
+//   FlatEmbedIndex      → brute-force fallback (backward compat)
+//   OrtEmbedder         → encode query to 384-d unit vector via ONNX Runtime
+//   RRFFusion           → Reciprocal Rank Fusion (k=60) of BM25 + dense lists
 
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "../utils/file_loader.h"
 #include "../search/search_engine.h"
 #include "../embed/flat_embed_index.h"
+#include "../embed/hnsw_index.h"
 #include "../embed/ort_embedder.h"
 #include "../embed/rrf_fusion.h"
 
-// ──────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
-// ──────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
-static void printBanner(int numDocs, bool hybridReady) {
+static void printBanner(int numDocs, bool hybridReady, bool usingHNSW) {
     std::cout << "\n";
     std::cout << "╔══════════════════════════════════════════════════════╗\n";
-    std::cout << "║       Adaptive Search Engine  v0.2  (C++17)         ║\n";
+    std::cout << "║       Adaptive Search Engine  v0.3  (C++17)         ║\n";
     std::cout << "╚══════════════════════════════════════════════════════╝\n";
     std::cout << "  Lexical : BM25(k1=1.5, b=0.75)×0.70 + TF-IDF×0.30\n";
+    std::cout << "  Query   : Porter Stemmer (Steps 1-5) + Spell Correction\n";
     if (hybridReady) {
         std::cout << "  Semantic: all-MiniLM-L6-v2 via ONNX Runtime (384-d)\n";
+        std::cout << "  ANN     : " << (usingHNSW ? "HNSW (M=16, efC=200, O(log N))"
+                                                  : "FlatEmbedIndex (brute-force)") << "\n";
         std::cout << "  Fusion  : Reciprocal Rank Fusion (k=60)\n";
     } else {
         std::cout << "  Semantic: DISABLED (run scripts/export_model.py +\n";
@@ -46,11 +54,12 @@ static void printBanner(int numDocs, bool hybridReady) {
     std::cout << "  Cache   : LRU (128 query slots)\n";
     std::cout << "  Corpus  : " << numDocs << " documents\n\n";
     std::cout << "Commands:\n";
-    std::cout << "  <query>      search (hybrid if available, lexical otherwise)\n";
-    std::cout << "  bm25 <q>     force lexical-only search\n";
-    std::cout << "  dense <q>    force semantic-only search\n";
-    std::cout << "  click <N>    record click on result N (personalisation)\n";
-    std::cout << "  quit         exit\n";
+    std::cout << "  <query>        hybrid search (lexical + dense if available)\n";
+    std::cout << "  bm25 <q>       force lexical-only BM25 search\n";
+    std::cout << "  dense <q>      force semantic-only ANN search\n";
+    std::cout << "  phrase <q>     positional phrase search (exact sequence)\n";
+    std::cout << "  click <N>      record click on result N (personalisation)\n";
+    std::cout << "  quit           exit\n";
     std::cout << "──────────────────────────────────────────────────────\n\n";
 }
 
@@ -96,15 +105,16 @@ static void printHybridResults(const std::vector<RRFResult>& results,
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // main
-// ──────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
-    std::string dataPath   = "data/documents.txt";
-    std::string embedPath  = "data/embeddings.bin";
-    std::string modelPath  = "models/all-MiniLM-L6-v2.onnx";
-    std::string vocabPath  = "models/tokenizer_config/vocab.txt";
+    std::string dataPath  = "data/documents.txt";
+    std::string embedPath = "data/embeddings.bin";
+    std::string hnswPath  = "data/hnsw.bin";
+    std::string modelPath = "models/all-MiniLM-L6-v2.onnx";
+    std::string vocabPath = "models/tokenizer_config/vocab.txt";
 
     if (argc >= 2) dataPath  = argv[1];
     if (argc >= 3) embedPath = argv[2];
@@ -116,40 +126,54 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // ── O(1) content lookup by docId ──────────────────────────────────────
+    // Replaces the O(N) linear scan used to fill missing content in hybrid results.
+    std::unordered_map<int, std::string> docContent;
+    docContent.reserve(docs.size());
+    for (const auto& d : docs) docContent[d.id] = d.content;
+
     // ── 2. Build lexical index ────────────────────────────────────────────
     SearchEngine engine(128);
     {
         auto t0 = std::chrono::high_resolution_clock::now();
-        for (const auto& doc : docs) {
-            engine.addDocument(doc.id, doc.content);
-        }
+        for (const auto& doc : docs) engine.addDocument(doc.id, doc.content);
         engine.finalizeIndex();
         auto t1 = std::chrono::high_resolution_clock::now();
         long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count();
         std::cout << "Lexical index built in " << ms << " ms  ("
-                  << engine.totalDocs() << " docs)\n";
+                  << engine.totalDocs() << " docs, stemmed vocabulary)\n";
     }
 
-    // ── 3. Load embedding index (optional — graceful degradation) ─────────
+    // ── 3. Load HNSW index (preferred) or flat fallback ──────────────────
+    HNSWIndex   hnswIndex;
     FlatEmbedIndex embedIndex;
-    OrtEmbedder    embedder;
-    RRFFusion      rrf(60);
+    OrtEmbedder embedder;
+    RRFFusion   rrf(60);
     bool hybridReady = false;
+    bool usingHNSW   = false;
 
-    if (embedIndex.loadFromFile(embedPath)) {
+    // Try HNSW first
+    if (hnswIndex.loadFromFile(hnswPath)) {
         if (embedder.load(modelPath, vocabPath)) {
             hybridReady = true;
-            std::cout << "Hybrid path ready  (ORT + FlatEmbedIndex)\n";
-        } else {
-            std::cerr << "ORT session failed — falling back to lexical-only\n";
+            usingHNSW   = true;
+            std::cout << "Hybrid path ready  (ORT + HNSW, " << hnswIndex.size() << " nodes)\n";
         }
-    } else {
-        std::cout << "No embeddings file found — running lexical-only\n";
+    }
+    // Fall back to FlatEmbedIndex
+    if (!hybridReady && embedIndex.loadFromFile(embedPath)) {
+        if (embedder.load(modelPath, vocabPath)) {
+            hybridReady = true;
+            std::cout << "Hybrid path ready  (ORT + FlatEmbedIndex, brute-force)\n";
+        }
+    }
+    if (!hybridReady) {
+        std::cout << "No embeddings found — running lexical-only\n";
         std::cout << "  To enable hybrid: python3 scripts/export_model.py\n";
         std::cout << "                    python3 scripts/embed_corpus.py\n";
     }
 
-    printBanner(engine.totalDocs(), hybridReady);
+    printBanner(engine.totalDocs(), hybridReady, usingHNSW);
 
     // ── 4. Interactive loop ───────────────────────────────────────────────
     std::string line;
@@ -182,13 +206,39 @@ int main(int argc, char* argv[]) {
                     if (rank >= 1 && rank <= static_cast<int>(lastLexical.size()))
                         docId = lastLexical[rank-1].docId;
                 }
-                if (docId > 0) {
+                if (docId != -1) {
                     engine.recordClick(docId);
                     std::cout << "  Recorded click on doc#" << docId << "\n\n";
                 } else {
                     std::cout << "  Invalid rank.\n\n";
                 }
             } catch (...) { std::cout << "  Usage: click <rank>\n\n"; }
+            continue;
+        }
+
+        // ── phrase command ───────────────────────────────────────────────
+        if (line.rfind("phrase ", 0) == 0) {
+            std::string q = line.substr(7);
+            auto t0 = std::chrono::high_resolution_clock::now();
+            std::vector<SearchResult> phraseRes = engine.searchPhrase(q);
+            auto t1 = std::chrono::high_resolution_clock::now();
+            long long us = std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count();
+
+            if (phraseRes.empty()) {
+                std::cout << "  No phrase results for: \"" << q << "\"\n\n";
+            } else {
+                std::cout << "  [Phrase] Results for: \"" << q << "\""
+                          << "  [" << us << " µs]\n";
+                std::cout << "  ──────────────────────────────────────────\n";
+                for (int i = 0; i < static_cast<int>(phraseRes.size()); ++i) {
+                    const auto& r = phraseRes[i];
+                    std::cout << "  " << std::setw(2) << (i+1)
+                              << ".  doc#" << r.docId << "\n"
+                              << "      " << r.content.substr(0, 115)
+                              << (r.content.size() > 115 ? "…" : "") << "\n\n";
+                }
+            }
+            lastWasHybrid = false;
             continue;
         }
 
@@ -209,17 +259,26 @@ int main(int argc, char* argv[]) {
             std::string q = line.substr(6);
             auto t0 = std::chrono::high_resolution_clock::now();
             std::vector<float> qvec = embedder.encode(q);
-            std::vector<std::pair<int,float>> denseRes =
-                embedIndex.search(qvec.data(), 10);
             auto t1 = std::chrono::high_resolution_clock::now();
             long long us = std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count();
 
             std::cout << "  [Dense] Results for: \"" << q << "\"  [" << us << " µs]\n";
             std::cout << "  ──────────────────────────────────────────\n";
-            for (int i = 0; i < static_cast<int>(denseRes.size()); ++i) {
-                std::cout << "  " << std::setw(2) << (i+1)
-                          << ".  cos=" << std::fixed << std::setprecision(4)
-                          << denseRes[i].second << "  doc#" << denseRes[i].first << "\n\n";
+
+            if (usingHNSW) {
+                auto denseRes = hnswIndex.search(qvec.data(), 10, 50);
+                for (int i = 0; i < static_cast<int>(denseRes.size()); ++i) {
+                    std::cout << "  " << std::setw(2) << (i+1)
+                              << ".  cos=" << std::fixed << std::setprecision(4)
+                              << denseRes[i].distance << "  doc#" << denseRes[i].docId << "\n\n";
+                }
+            } else {
+                auto denseRes = embedIndex.search(qvec.data(), 10);
+                for (int i = 0; i < static_cast<int>(denseRes.size()); ++i) {
+                    std::cout << "  " << std::setw(2) << (i+1)
+                              << ".  cos=" << std::fixed << std::setprecision(4)
+                              << denseRes[i].second << "  doc#" << denseRes[i].first << "\n\n";
+                }
             }
             continue;
         }
@@ -227,21 +286,24 @@ int main(int argc, char* argv[]) {
         // ── Normal query — hybrid if ready, lexical otherwise ────────────
         auto t0 = std::chrono::high_resolution_clock::now();
         if (hybridReady) {
-            // Lexical leg
-            lastLexical = engine.search(line, 20);  // wider window for fusion
-            // Dense leg
+            lastLexical = engine.search(line, 20);
             std::vector<float> qvec = embedder.encode(line);
-            std::vector<std::pair<int,float>> denseRes =
-                embedIndex.search(qvec.data(), 20);
-            // Fuse
+
+            std::vector<std::pair<int,float>> denseRes;
+            if (usingHNSW) {
+                for (auto& r : hnswIndex.search(qvec.data(), 20, 50))
+                    denseRes.emplace_back(r.docId, r.distance);
+            } else {
+                denseRes = embedIndex.search(qvec.data(), 20);
+            }
+
             lastHybrid = rrf.fuse(lastLexical, denseRes, 10);
-            // Fill missing content for dense-only results
+
+            // O(1) content fill using pre-built unordered_map
             for (auto& r : lastHybrid) {
                 if (r.content.empty()) {
-                    // Search engine doesn't expose index directly; look up in docs.
-                    for (const auto& d : docs) {
-                        if (d.id == r.docId) { r.content = d.content; break; }
-                    }
+                    auto it = docContent.find(r.docId);
+                    if (it != docContent.end()) r.content = it->second;
                 }
             }
             auto t1 = std::chrono::high_resolution_clock::now();
