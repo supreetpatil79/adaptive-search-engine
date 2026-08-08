@@ -45,22 +45,22 @@ bool FlatEmbedIndex::loadFromFile(const std::string& path) {
     return true;
 }
 
+#include "../utils/simd_math.h"
+
 std::vector<std::pair<int, float>>
 FlatEmbedIndex::search(const float* queryVec, int topK) const {
     if (data_.empty() || queryVec == nullptr) return {};
 
-    // Compute dot products (= cosine sim for unit vectors).
+    // Compute dot products (= cosine sim for unit vectors) using SIMD.
     std::vector<std::pair<float, int>> sims;  // (sim, docId)
     sims.reserve(numDocs_);
 
     for (int i = 0; i < numDocs_; ++i) {
         const float* row = rowPtr(i);
-        float dot = 0.0f;
-        for (int d = 0; d < dim_; ++d) {
-            dot += row[d] * queryVec[d];
-        }
+        float dot = simd::innerProduct(row, queryVec, dim_);
         sims.emplace_back(dot, i + 1);  // docId is 1-based (matches InvertedIndex)
     }
+
 
     // Partial sort: only pull the topK to the front — O(N log K) instead of O(N log N).
     int k = std::min(topK, static_cast<int>(sims.size()));

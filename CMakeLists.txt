@@ -104,6 +104,13 @@ add_executable(benchmark_throughput
 )
 target_include_directories(benchmark_throughput PRIVATE ${ENGINE_INCLUDES})
 
+# ── Benchmark: SIMD Vector Math Speedup ────────────────────────────────────
+add_executable(benchmark_simd
+    bench/benchmark_simd.cpp
+)
+target_include_directories(benchmark_simd PRIVATE ${ENGINE_INCLUDES})
+
+
 # ── Test: Multi-threaded Concurrency & Stress Test ─────────────────────────
 add_executable(test_concurrency
     tests/test_concurrency.cpp

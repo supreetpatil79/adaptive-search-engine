@@ -31,13 +31,14 @@ HNSWIndex::HNSWIndex(int dim, int M, int efConstruction)
     : dim_(dim), M_(M), efConstruction_(efConstruction),
       mL_(1.0 / std::log(static_cast<double>(M))) {}
 
+#include "../utils/simd_math.h"
+
 // ── Distance helpers ─────────────────────────────────────────────────────────
 
 float HNSWIndex::innerProduct(const float* a, const float* b) const {
-    float dot = 0.0f;
-    for (int d = 0; d < dim_; ++d) dot += a[d] * b[d];
-    return dot;
+    return simd::innerProduct(a, b, dim_);
 }
+
 
 // "distance" = 1 - inner_product  (lower = more similar, works with min-heap)
 float HNSWIndex::distance(const float* a, const float* b) const {
