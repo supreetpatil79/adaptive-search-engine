@@ -78,7 +78,10 @@ std::vector<SearchResult> WANDScorer::search(
 
         if (minDocId == pivotDocId) {
             // Full evaluation of minDocId
-            if (stats) stats->fullEvaluations++;
+            if (stats) {
+                stats->fullEvaluations++;
+                stats->totalCandidatesEvaluated++;
+            }
 
             double score = 0.0;
             int docLength = index.getDocLength(minDocId);

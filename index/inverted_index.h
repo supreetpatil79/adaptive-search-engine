@@ -100,7 +100,11 @@ private:
     // docId -> document length
     std::unordered_map<int, int> docLengths;
 
+    mutable double cachedAvgDocLen_{0.0};
+    mutable bool   avgDocLenValid_{false};
+
     static constexpr size_t SKIP_INTERVAL = 8; // skip pointer every 8 postings
 };
+
 
 #endif // INVERTED_INDEX_H

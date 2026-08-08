@@ -6,6 +6,7 @@
 void InvertedIndex::addDocument(const Document& doc) {
     documents[doc.id] = doc;
     docLengths[doc.id] = static_cast<int>(doc.tokens.size());
+    avgDocLenValid_ = false;
 
     std::unordered_map<std::string, std::vector<int>> termPositions;
 
@@ -111,10 +112,10 @@ int InvertedIndex::getDocumentFrequency(const std::string& term) const {
 std::vector<int> InvertedIndex::getPositions(const std::string& term, int docId) const {
     const auto* postings = getPostings(term);
     if (postings) {
-        for (const auto& p : *postings) {
-            if (p.docId == docId) {
-                return p.positions;
-            }
+        auto it = std::lower_bound(postings->begin(), postings->end(), docId,
+            [](const Posting& p, int id) { return p.docId < id; });
+        if (it != postings->end() && it->docId == docId) {
+            return it->positions;
         }
     }
     return {};
@@ -123,25 +124,46 @@ std::vector<int> InvertedIndex::getPositions(const std::string& term, int docId)
 std::vector<int> InvertedIndex::phraseSearch(const std::vector<std::string>& phraseTokens) const {
     if (phraseTokens.empty()) return {};
 
-    // Get candidate docs containing the first token
-    const auto* firstPostings = getPostings(phraseTokens[0]);
-    if (!firstPostings || firstPostings->empty()) return {};
+    std::vector<const std::vector<Posting>*> tokenPostings;
+    tokenPostings.reserve(phraseTokens.size());
+    for (const auto& t : phraseTokens) {
+        const auto* p = getPostings(t);
+        if (!p || p->empty()) return {};
+        tokenPostings.push_back(p);
+    }
 
+    const auto* firstPostings = tokenPostings[0];
     std::vector<int> result;
 
     for (const auto& p0 : *firstPostings) {
         int docId = p0.docId;
         bool matchInDoc = false;
 
-        // Check each position of first token
+        std::vector<const std::vector<int>*> tokenDocPositions;
+        tokenDocPositions.reserve(phraseTokens.size());
+        tokenDocPositions.push_back(&p0.positions);
+
+        bool allTokensInDoc = true;
+        for (size_t i = 1; i < phraseTokens.size(); ++i) {
+            const auto& plist = *tokenPostings[i];
+            auto it = std::lower_bound(plist.begin(), plist.end(), docId,
+                [](const Posting& p, int id) { return p.docId < id; });
+            if (it == plist.end() || it->docId != docId) {
+                allTokensInDoc = false;
+                break;
+            }
+            tokenDocPositions.push_back(&(it->positions));
+        }
+
+        if (!allTokensInDoc) continue;
+
         for (int pos0 : p0.positions) {
             bool phraseMatches = true;
 
             for (size_t i = 1; i < phraseTokens.size(); ++i) {
-                std::vector<int> posI = getPositions(phraseTokens[i], docId);
                 int targetPos = pos0 + static_cast<int>(i);
-
-                if (std::find(posI.begin(), posI.end(), targetPos) == posI.end()) {
+                const auto& posVec = *tokenDocPositions[i];
+                if (!std::binary_search(posVec.begin(), posVec.end(), targetPos)) {
                     phraseMatches = false;
                     break;
                 }
@@ -171,13 +193,16 @@ const Document* InvertedIndex::getDocument(int docId) const {
 
 double InvertedIndex::getAverageDocLength() const {
     if (documents.empty()) return 0.0;
+    if (avgDocLenValid_) return cachedAvgDocLen_;
 
     double total = 0.0;
     for (const auto& [id, len] : docLengths) {
         total += len;
     }
 
-    return total / documents.size();
+    cachedAvgDocLen_ = total / documents.size();
+    avgDocLenValid_ = true;
+    return cachedAvgDocLen_;
 }
 
 int InvertedIndex::getDocLength(int docId) const {
@@ -200,6 +225,7 @@ std::vector<std::string> InvertedIndex::getVocabulary() const {
 // Merge all posting data from 'other' directly — no re-tokenisation.
 // Called by SegmentBuilder to combine thread-local segments efficiently.
 void InvertedIndex::mergePostingsFrom(const InvertedIndex& other) {
+    avgDocLenValid_ = false;
     // Merge document metadata
     for (const auto& [id, doc] : other.documents) {
         documents[id] = doc;

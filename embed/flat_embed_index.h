@@ -36,14 +36,15 @@ public:
     int  dim()        const { return dim_;      }
     bool isLoaded()   const { return !data_.empty(); }
 
+    const float* rowPtr(int docIdx) const {
+        return data_.data() + static_cast<std::size_t>(docIdx) * dim_;
+    }
+
 private:
     int                  numDocs_ = 0;
     int                  dim_     = 0;
     std::vector<float>   data_;   // flat row-major [numDocs_ × dim_]
-
-    const float* rowPtr(int docIdx) const {
-        return data_.data() + static_cast<std::size_t>(docIdx) * dim_;
-    }
 };
+
 
 #endif // FLAT_EMBED_INDEX_H

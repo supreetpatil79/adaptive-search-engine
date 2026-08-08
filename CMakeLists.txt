@@ -137,8 +137,17 @@ add_executable(test_rrf
 target_include_directories(test_rrf PRIVATE ${ENGINE_INCLUDES})
 # test_rrf does not link ORT — it only tests RRFFusion which has no ORT dep.
 
+# ── Tool: Build HNSW graph from embeddings.bin ─────────────────────────────
+add_executable(build_hnsw
+    embed/build_hnsw.cpp
+    embed/flat_embed_index.cpp
+    embed/hnsw_index.cpp
+)
+target_include_directories(build_hnsw PRIVATE ${ENGINE_INCLUDES})
+
 # ── Installation ───────────────────────────────────────────────────────────
-install(TARGETS ${PROJECT_NAME} DESTINATION bin)
+install(TARGETS ${PROJECT_NAME} build_hnsw DESTINATION bin)
+
 
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure

@@ -1,7 +1,9 @@
 # 🔍 Adaptive Search Engine (Production C++17)
 
+![CI](https://github.com/supreetpatil/adaptive-search-engine/actions/workflows/ci.yml/badge.svg)
+
 A high-performance, multi-threaded Information Retrieval (IR) and Hybrid Search Engine implemented in C++17.
-Features a dual-path hybrid retrieval pipeline combining **BM25 lexical search** and **ONNX dense vector embeddings** via **Reciprocal Rank Fusion (RRF)**, **WAND top-K candidate pruning**, **positional inverted index with skip lists**, and **thread-safe reader-writer concurrency**.
+Features a dual-path hybrid retrieval pipeline combining **BM25 lexical search** and **HNSW / ONNX dense vector embeddings** via **Reciprocal Rank Fusion (RRF)**, **WAND top-K candidate pruning**, **positional inverted index with skip lists**, **spell correction & Porter stemming**, and **thread-safe reader-writer concurrency**.
 
 ---
 
@@ -20,16 +22,16 @@ Features a dual-path hybrid retrieval pipeline combining **BM25 lexical search**
                      │                                                     │
                      ▼                                                     ▼
         ┌─────────────────────────┐                           ┌─────────────────────────┐
-        │        Tokenizer        │                           │       OrtEmbedder       │
-        │ Normalise/Stop-words/   │                           │   ONNX Runtime C++ API  │
-        │     Porter Stemmer      │                           │ all-MiniLM-L6-v2 (384d) │
+        │  Spell-Checker & Stem   │                           │       OrtEmbedder       │
+        │ Edit-Dist Vocab Scan +  │                           │   ONNX Runtime C++ API  │
+        │ Porter Stemmer (1a-5b)  │                           │ all-MiniLM-L6-v2 (384d) │
         └────────────┬────────────┘                           └────────────┬────────────┘
                      │                                                     │
                      ▼                                                     ▼
         ┌─────────────────────────┐                           ┌─────────────────────────┐
-        │     Positional Index    │                           │     FlatEmbedIndex      │
-        │   Skip Lists (step=8)   │                           │ Brute-force Cosine Sim  │
-        │ WAND Pruning (maxScore) │                           │  O(N·D) Dot Product     │
+        │     Positional Index    │                           │        HNSW Index       │
+        │   Skip Lists (step=8)   │                           │ Hierarchical Navigable  │
+        │ WAND Pruning (maxScore) │                           │ Small World O(log N)    │
         └────────────┬────────────┘                           └────────────┬────────────┘
                      │                                                     │
                      ▼                                                     ▼
@@ -57,13 +59,13 @@ Features a dual-path hybrid retrieval pipeline combining **BM25 lexical search**
 
 ## ⚡ Performance Benchmarks & Quality Evaluation
 
-All benchmarks were measured on Apple Silicon (M-series, 10,000 documents):
+All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
 
-### 1. Candidate Pruning Speedup (10,000 Documents)
-| Query Mode | Average Latency | Throughput (QPS) | Speedup | Candidate Docs Evaluated |
-|---|---|---|---|---|
-| **Unpruned Lexical Scoring** | 262,127.25 µs (262 ms) | 2.6 QPS | 1.00x (Baseline) | 10,000 docs / query |
-| **WAND Top-K Pruning** | **277.19 µs (0.27 ms)** | **4,054.3 QPS** | **1,548.34x Faster** | **~20 docs / query (99.8% skipped)** |
+### 1. WAND Candidate Pruning Latency & Tail Latency (2,000 Documents, 500 Samples)
+| Query Mode | Mean Latency | P50 Latency | P95 Latency | P99 Latency | Speedup (Mean / P99) |
+|---|---|---|---|---|---|
+| **Unpruned Lexical Scoring** | 3,069.72 µs | 854.65 µs | 8,329.11 µs | 8,757.52 µs | 1.00x (Baseline) |
+| **WAND Top-K Pruning** | **53.03 µs** | **47.42 µs** | **70.11 µs** | **82.51 µs** | **57.9x / 106.1x Faster** |
 
 ### 2. Search Relevance Quality (NDCG@10 on 10,000 Documents)
 | Retrieval Strategy | Mean NDCG@10 | Quality Gain |
@@ -71,58 +73,63 @@ All benchmarks were measured on Apple Silicon (M-series, 10,000 documents):
 | **BM25 Lexical Only** | 0.8631 | Baseline |
 | **Hybrid RRF (BM25 + ONNX Dense)** | **0.9597** | **+11.19% Overall NDCG Gain** |
 
-*Note: For queries with vocabulary mismatch (e.g. "cybersecurity cryptography ledger privacy"), Hybrid RRF achieved **+6875% NDCG@10 gain** over pure BM25 by retrieving semantically relevant passages without exact term overlap.*
+*Note: For queries with vocabulary mismatch (e.g., `"cybersecurity cryptography ledger privacy"`), Hybrid RRF achieved **+6,875% NDCG@10 gain** over pure BM25 by retrieving semantically relevant passages without exact term overlap.*
 
 ### 3. Multi-Threaded Concurrency (Reader-Writer Stress Test)
 - **Workload**: 4 concurrent Writer threads (indexing new documents continuously) + 8 concurrent Reader threads (evaluating WAND queries).
-- **Result**: **2,318 writes** + **2,817 reads** completed under load with **0 deadlocks** and **0 data races** under `-fsanitize=address,undefined`.
+- **Result**: **2,358 writes** + **2,802 reads** completed under load with **0 deadlocks** and **0 data races** under `-fsanitize=address,undefined`.
 
 ---
 
-## ⚖️ Key Design Tradeoffs
+## ⚖️ Key Architectural Components
 
-### 1. BM25 vs Dense Vectors vs Hybrid RRF
-- **Lexical BM25**: Excellent for exact term matches, proper names, and code symbols, but fails on vocabulary mismatch or synonyms.
-- **Dense Vectors (all-MiniLM-L6-v2)**: Captures deep semantic intent and concepts, but can miss exact keyword constraints.
-- **Reciprocal Rank Fusion (RRF, k=60)**: Combines ranks without needing score normalization, defending against scale mismatches and leveraging the strengths of both paradigms.
+### 1. Approximate Nearest Neighbors via HNSW (`embed/hnsw_index.h`)
+- Implements Hierarchical Navigable Small World graphs (Malkov & Yashunin 2018).
+- Replaces brute-force $O(N \cdot D)$ cosine similarity scanning with $O(\log N)$ beam-search graph traversal.
+- Binary graph persistence with configurable $M=16$ and $ef_{construction}=200$.
 
-### 2. Full Search vs WAND Pruning
-- Full search scores every document in posting lists ($O(N)$), causing severe latency at scale ($>250\text{ ms}$).
-- WAND tracks precomputed term upper bounds (`maxTermScores`) and skips candidate ranges via skip pointers ($SKIP\_INTERVAL = 8$), reducing latency to $<0.3\text{ ms}$ (**945x speedup**).
+### 2. Query Expansion & Lexical Normalization (`query/`)
+- **Full 5-Step Porter Stemmer**: Handles suffix stripping rules (Steps 1a–5b), reducing variations like `"generalization"` $\rightarrow$ `"general"`.
+- **Vocabulary-Aware Spell Checker**: Dynamically scans indexed terms using Levenshtein distance with length pre-filtering to correct misspellings (e.g. `"lerning"` $\rightarrow$ `"learning"`).
+
+### 3. Hybrid Retrieval & Reciprocal Rank Fusion (`embed/rrf_fusion.h`)
+- Combines ranked lists from BM25 lexical search and HNSW dense vector search using $RRF(d) = \sum \frac{1}{k + r(d)}$ with $k=60$.
+- Eliminates scale normalization issues between lexical and vector scores.
 
 ---
 
 ## 🛠️ Build & Usage Instructions
 
-### Build All Executables
+### Build All Executables & Run Tests
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 4
+ctest --test-dir build --output-on-failure
 ```
 
-### Run Executables
+### Build Offline HNSW Vector Graph
+```bash
+./build/build_hnsw data/embeddings.bin data/hnsw.bin
+```
 
-1. **Interactive Hybrid Search CLI**:
+### Executables
+1. **Interactive Search CLI** (supports hybrid search, `bm25 <q>`, `dense <q>`, `phrase <q>`, `click <rank>`):
    ```bash
    ./build/adaptive-search-engine data/documents.txt data/embeddings.bin
    ```
-
-2. **WAND Pruning Benchmark**:
+2. **WAND Pruning Latency Benchmark**:
    ```bash
    ./build/benchmark_pruning
    ```
-
-3. **Concurrency Stress Test**:
+3. **Query Throughput (QPS) Benchmark**:
+   ```bash
+   ./build/benchmark_throughput
+   ```
+4. **Concurrency Stress Test**:
    ```bash
    ./build/test_concurrency
    ```
-
-4. **NDCG@10 IR Evaluation**:
+5. **NDCG@10 IR Evaluation**:
    ```bash
    ./build/evaluator data/corpus_10k.txt data/embeddings_10k.bin
-   ```
-
-5. **RRF Unit Tests**:
-   ```bash
-   ./build/test_rrf
    ```
