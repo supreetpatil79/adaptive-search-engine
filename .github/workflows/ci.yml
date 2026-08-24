@@ -46,7 +46,7 @@ jobs:
 
       - name: Build core targets
         run: |
-          cmake --build $BUILD_DIR --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 test_snippet test_shards adaptive-search-server benchmark_pruning --parallel 4
+          cmake --build $BUILD_DIR --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 test_snippet test_shards test_cross_encoder adaptive-search-server benchmark_pruning --parallel 4
 
       - name: Run CTest test suite (all unit tests)
         run: |
@@ -78,11 +78,12 @@ jobs:
       - name: Configure + Build
         run: |
           cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-macos --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 test_snippet test_shards adaptive-search-server --parallel 4
+          cmake --build build-macos --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 test_snippet test_shards test_cross_encoder adaptive-search-server --parallel 4
 
       - name: Run CTest test suite (all unit tests)
         run: |
           ctest --test-dir build-macos --output-on-failure
+
 
 
 

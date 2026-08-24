@@ -61,6 +61,7 @@ set(EMBED_SOURCES
     embed/ort_embedder.cpp
     embed/rrf_fusion.cpp
     embed/sq8_index.cpp
+    ranking/cross_encoder.cpp
     server/search_server.cpp
 )
 
@@ -218,6 +219,22 @@ add_executable(test_shards
 )
 target_include_directories(test_shards PRIVATE ${ENGINE_INCLUDES})
 
+# ── Test: Cross-Encoder Neural Re-Ranker ───────────────────────────────────
+add_executable(test_cross_encoder
+    tests/test_cross_encoder.cpp
+    ${CORE_SOURCES}
+    ${EMBED_SOURCES}
+)
+target_include_directories(test_cross_encoder PRIVATE ${ENGINE_INCLUDES})
+target_link_libraries(test_cross_encoder PRIVATE "${ORT_LIB}")
+
+add_custom_command(TARGET test_cross_encoder POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ORT_LIB}"
+        "$<TARGET_FILE_DIR:test_cross_encoder>/libonnxruntime.dylib"
+    COMMENT "Copying libonnxruntime.dylib alongside test_cross_encoder"
+)
+
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure
 enable_testing()
@@ -229,6 +246,7 @@ add_test(NAME inverted_index_unit_test  COMMAND test_inverted_index)
 add_test(NAME sq8_unit_test             COMMAND test_sq8)
 add_test(NAME snippet_unit_test         COMMAND test_snippet)
 add_test(NAME shards_unit_test          COMMAND test_shards)
+add_test(NAME cross_encoder_unit_test   COMMAND test_cross_encoder)
 
 # Tests that need data/documents.txt must run from project root
 set_tests_properties(rrf_unit_tests            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -239,6 +257,7 @@ set_tests_properties(inverted_index_unit_test  PROPERTIES WORKING_DIRECTORY "${C
 set_tests_properties(sq8_unit_test             PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(snippet_unit_test         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(shards_unit_test          PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(cross_encoder_unit_test   PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

@@ -195,7 +195,10 @@ void SearchServer::handleClient(int clientFd) {
         queryStr = path.substr(qPos + 1);
     }
 
-    if (endpoint == "/health" || endpoint == "/") {
+    if (endpoint == "/" || endpoint == "/ui") {
+        contentType = "text/html; charset=utf-8";
+        responseBody = handleWebUI();
+    } else if (endpoint == "/health") {
         responseBody = handleHealth();
     } else if (endpoint == "/metrics") {
         contentType = "text/plain; version=0.0.4";
@@ -238,6 +241,204 @@ void SearchServer::handleClient(int clientFd) {
     std::string resp = oss.str();
     send(clientFd, resp.data(), resp.size(), 0);
     close(clientFd);
+}
+
+std::string SearchServer::handleWebUI() {
+    std::string html = R"rawhtml(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adaptive Search Engine — Neural Hybrid & Stage-2 Re-ranker</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #0a0e17;
+    --bg-secondary: #131b2e;
+    --bg-card: #1c2742;
+    --border: #2a3b63;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --highlight: #fde047;
+    --badge-bg: #1e3a8a;
+    --badge-text: #93c5fd;
+    --success: #10b981;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, sans-serif; }
+  body { background: var(--bg-primary); color: var(--text-main); min-height: 100vh; display: flex; flex-direction: column; }
+  header { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+  .logo { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+  .logo span { background: linear-gradient(135deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .status-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; padding: 0.35rem 0.85rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 999px; color: var(--success); font-family: 'JetBrains Mono', monospace; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); }
+  
+  main { max-width: 900px; width: 100%; margin: 0 auto; padding: 2.5rem 1.5rem; flex: 1; }
+  
+  .search-container { position: relative; margin-bottom: 1.5rem; }
+  .search-input { width: 100%; padding: 1.1rem 1.4rem; font-size: 1.1rem; background: var(--bg-secondary); border: 2px solid var(--border); border-radius: 12px; color: #fff; outline: none; transition: all 0.2s ease; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
+  
+  .mode-selector { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 2rem; }
+  .mode-pill { padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-muted); transition: all 0.15s ease; }
+  .mode-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4); }
+  
+  .metrics-bar { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; font-family: 'JetBrains Mono', monospace; }
+  
+  .results-list { display: flex; flex-direction: column; gap: 1rem; }
+  .result-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; transition: transform 0.15s ease, border-color 0.15s ease; position: relative; }
+  .result-card:hover { transform: translateY(-2px); border-color: #3b82f6; }
+  .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
+  .doc-badge { background: var(--badge-bg); color: var(--badge-text); font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 6px; font-family: 'JetBrains Mono', monospace; }
+  .score-badge { font-size: 0.8rem; font-weight: 600; color: #38bdf8; font-family: 'JetBrains Mono', monospace; }
+  
+  .result-snippet { font-size: 0.95rem; line-height: 1.55; color: #cbd5e1; }
+  .result-snippet b { color: var(--highlight); font-weight: 600; }
+  
+  .click-btn { margin-top: 0.75rem; font-size: 0.75rem; padding: 0.35rem 0.7rem; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); border-radius: 6px; color: #93c5fd; cursor: pointer; transition: all 0.15s; font-family: 'JetBrains Mono', monospace; }
+  .click-btn:hover { background: rgba(59,130,246,0.3); }
+  .click-btn.clicked { background: rgba(16,185,129,0.2); border-color: var(--success); color: var(--success); }
+
+  .add-doc-panel { margin-top: 3rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+  .add-doc-panel h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: #e2e8f0; }
+  .add-form { display: flex; gap: 0.75rem; }
+  .add-form input[type="number"] { width: 100px; padding: 0.6rem; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: #fff; }
+  .add-form input[type="text"] { flex: 1; padding: 0.6rem; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: #fff; }
+  .add-form button { padding: 0.6rem 1.2rem; background: var(--accent); border: none; border-radius: 6px; color: #fff; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">⚡ <span>Adaptive Search</span></div>
+  <div class="status-badge"><div class="status-dot"></div><span id="docCount">Online</span></div>
+</header>
+<main>
+  <div class="search-container">
+    <input type="text" id="queryInput" class="search-input" placeholder="Search across 10,000+ documents (e.g. 'machine learning', 'cloud DevOps', 'cryptography')..." autofocus autocomplete="off">
+  </div>
+  <div class="mode-selector">
+    <div class="mode-pill active" data-mode="hybrid">⚡ Hybrid (RRF)</div>
+    <div class="mode-pill" data-mode="rerank">🧠 Stage-2 Neural Re-ranker</div>
+    <div class="mode-pill" data-mode="wand">📊 WAND Top-K Pruned</div>
+    <div class="mode-pill" data-mode="bm25">📖 BM25 Lexical</div>
+    <div class="mode-pill" data-mode="phrase">🔍 Phrase (Positional)</div>
+  </div>
+  <div class="metrics-bar">
+    <span id="metricsResult">Type a query to search</span>
+    <span id="metricsLatency"></span>
+  </div>
+  <div class="results-list" id="resultsList"></div>
+
+  <div class="add-doc-panel">
+    <h3>⚡ Live Real-Time Document Ingestion (LSM WAL)</h3>
+    <form class="add-form" id="addDocForm">
+      <input type="number" id="newDocId" placeholder="Doc ID" required value="10001">
+      <input type="text" id="newDocContent" placeholder="Document content..." required>
+      <button type="submit">Ingest</button>
+    </form>
+  </div>
+</main>
+<script>
+let currentMode = 'hybrid';
+let debounceTimer = null;
+
+async function updateStatus() {
+  try {
+    const res = await fetch('/health');
+    const data = await res.json();
+    document.getElementById('docCount').innerText = `${data.totalDocs} docs indexed | v${data.version}`;
+  } catch (e) {}
+}
+updateStatus();
+
+document.querySelectorAll('.mode-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentMode = pill.dataset.mode;
+    executeSearch();
+  });
+});
+
+const queryInput = document.getElementById('queryInput');
+queryInput.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(executeSearch, 150);
+});
+
+async function executeSearch() {
+  const q = queryInput.value.trim();
+  if (!q) {
+    document.getElementById('resultsList').innerHTML = '';
+    document.getElementById('metricsResult').innerText = 'Type a query to search';
+    document.getElementById('metricsLatency').innerText = '';
+    return;
+  }
+
+  const t0 = performance.now();
+  try {
+    const res = await fetch(`/search?q=${encodeURIComponent(q)}&mode=${currentMode}&k=10`);
+    const data = await res.json();
+    const clientLatency = Math.round((performance.now() - t0) * 10) / 10;
+    
+    document.getElementById('metricsResult').innerText = `Found ${data.total} results for "${data.query}"`;
+    document.getElementById('metricsLatency').innerText = `Server: ${data.latencyUs} µs | Client: ${clientLatency} ms`;
+
+    const list = document.getElementById('resultsList');
+    if (data.results.length === 0) {
+      list.innerHTML = `<div style="text-align:center; padding: 2rem; color: var(--text-muted);">No matching documents found.</div>`;
+      return;
+    }
+
+    list.innerHTML = data.results.map((r, idx) => `
+      <div class="result-card">
+        <div class="result-header">
+          <span class="doc-badge">DOC #${r.docId}</span>
+          <span class="score-badge">Score: ${r.score}</span>
+        </div>
+        <div class="result-snippet">${r.snippet || r.content}</div>
+        <button class="click-btn" onclick="recordClick(${r.docId}, this)">👍 Relevant (Click feedback)</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('metricsResult').innerText = 'Error executing search';
+  }
+}
+
+async function recordClick(docId, btn) {
+  try {
+    await fetch('/click', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({docId})
+    });
+    btn.classList.add('clicked');
+    btn.innerText = '✓ Feedback Recorded (Personalized)';
+  } catch (e) {}
+}
+
+document.getElementById('addDocForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const docId = parseInt(document.getElementById('newDocId').value);
+  const content = document.getElementById('newDocContent').value;
+  try {
+    await fetch('/document', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({docId, content})
+    });
+    alert(`Document #${docId} ingested live!`);
+    updateStatus();
+    executeSearch();
+  } catch (err) {
+    alert('Error ingesting document');
+  }
+});
+</script>
+</body>
+</html>)rawhtml";
+    return html;
 }
 
 std::string SearchServer::handleHealth() {
@@ -301,7 +502,28 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
     int count = 0;
     bool hybridPossible = (embedder_ && embedder_->isLoaded() && (hnswIndex_ || flatIndex_));
 
-    if (mode == "hybrid" && hybridPossible) {
+    if (mode == "rerank") {
+        // Stage-1: Retrieve Top-50 candidates via Hybrid / BM25
+        auto l1Candidates = engine_.search(query, topK * 5);
+        auto reranked = crossEncoder_.rerank(query, l1Candidates, topK);
+
+        for (size_t i = 0; i < reranked.size(); ++i) {
+            const auto& r = reranked[i];
+            if (tombstones_.isDeleted(r.docId)) continue;
+
+            std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
+            if (count > 0) oss << ",";
+            oss << "{"
+                << "\"docId\":" << r.docId << ","
+                << "\"score\":" << std::fixed << std::setprecision(5) << r.score << ","
+                << "\"l1Score\":" << std::setprecision(3) << r.l1Score << ","
+                << "\"snippet\":\"" << escapeJson(snippet) << "\","
+                << "\"content\":\"" << escapeJson(r.content) << "\""
+                << "}";
+            count++;
+            if (count >= topK) break;
+        }
+    } else if (mode == "hybrid" && hybridPossible) {
         auto lexicalRes = engine_.search(query, topK * 2);
         std::vector<float> qvec = embedder_->encode(query);
         std::vector<std::pair<int, float>> denseRes;

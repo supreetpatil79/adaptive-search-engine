@@ -7,6 +7,7 @@
 #include "../embed/ort_embedder.h"
 #include "../embed/rrf_fusion.h"
 #include "../index/tombstone.h"
+#include "../ranking/cross_encoder.h"
 #include <atomic>
 #include <chrono>
 #include <string>
@@ -16,9 +17,10 @@
 
 // SearchServer — Production HTTP REST & Metrics Server for Adaptive Search Engine.
 // Exposes:
-//   GET    /health
-//   GET    /metrics (Prometheus format)
-//   GET    /search?q=<query>&mode=<hybrid|bm25|wand|phrase>&k=<topK>
+//   GET    /          (Interactive Web UI Search Engine Dashboard)
+//   GET    /health    (JSON Health status)
+//   GET    /metrics   (Prometheus format)
+//   GET    /search?q=<query>&mode=<hybrid|rerank|bm25|wand|phrase>&k=<topK>
 //   POST   /click     {"docId": <id>}
 //   POST   /document  {"docId": <id>, "content": "..."}
 //   DELETE /document  {"docId": <id>}
@@ -46,6 +48,7 @@ private:
     void serverLoop(int serverFd);
     void handleClient(int clientFd);
 
+    std::string handleWebUI();
     std::string handleSearch(const std::string& query, const std::string& mode, int topK);
     std::string handleMetrics();
     std::string handleHealth();
@@ -58,6 +61,7 @@ private:
     FlatEmbedIndex* flatIndex_;
     OrtEmbedder* embedder_;
     RRFFusion rrf_{60};
+    CrossEncoder crossEncoder_;
     std::unordered_map<int, std::string> docContent_;
     TombstoneManager tombstones_;
 
