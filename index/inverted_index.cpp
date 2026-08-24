@@ -242,3 +242,236 @@ void InvertedIndex::mergePostingsFrom(const InvertedIndex& other) {
         }
     }
 }
+
+namespace {
+constexpr uint32_t IIDX_MAGIC = 0x49494458u; // "IIDX"
+constexpr uint32_t IIDX_VERSION = 1;
+}
+
+bool InvertedIndex::saveToFile(const std::string& filepath) const {
+    FILE* f = std::fopen(filepath.c_str(), "wb");
+    if (!f) return false;
+
+    uint32_t header[4] = {
+        IIDX_MAGIC,
+        IIDX_VERSION,
+        static_cast<uint32_t>(documents.size()),
+        static_cast<uint32_t>(postingsMap.size())
+    };
+    if (std::fwrite(header, sizeof(uint32_t), 4, f) != 4) {
+        std::fclose(f);
+        return false;
+    }
+
+    // 1. Documents
+    for (const auto& [id, doc] : documents) {
+        int32_t docId = id;
+        uint32_t contentLen = static_cast<uint32_t>(doc.content.size());
+        int32_t docLen = getDocLength(docId);
+        uint32_t tokensCount = static_cast<uint32_t>(doc.tokens.size());
+
+        std::fwrite(&docId, sizeof(int32_t), 1, f);
+        std::fwrite(&docLen, sizeof(int32_t), 1, f);
+        std::fwrite(&contentLen, sizeof(uint32_t), 1, f);
+        if (contentLen > 0) {
+            std::fwrite(doc.content.data(), sizeof(char), contentLen, f);
+        }
+        std::fwrite(&tokensCount, sizeof(uint32_t), 1, f);
+        for (const auto& t : doc.tokens) {
+            uint16_t tlen = static_cast<uint16_t>(t.size());
+            std::fwrite(&tlen, sizeof(uint16_t), 1, f);
+            if (tlen > 0) std::fwrite(t.data(), sizeof(char), tlen, f);
+        }
+    }
+
+    // 2. Postings & Inverted index
+    for (const auto& [term, postings] : postingsMap) {
+        uint16_t termLen = static_cast<uint16_t>(term.size());
+        double maxScore = getMaxTermScore(term);
+        uint32_t numPostings = static_cast<uint32_t>(postings.size());
+
+        std::fwrite(&termLen, sizeof(uint16_t), 1, f);
+        if (termLen > 0) std::fwrite(term.data(), sizeof(char), termLen, f);
+        std::fwrite(&maxScore, sizeof(double), 1, f);
+        std::fwrite(&numPostings, sizeof(uint32_t), 1, f);
+
+        for (const auto& p : postings) {
+            int32_t pDocId = p.docId;
+            int32_t pTf = p.tf;
+            uint32_t numPos = static_cast<uint32_t>(p.positions.size());
+
+            std::fwrite(&pDocId, sizeof(int32_t), 1, f);
+            std::fwrite(&pTf, sizeof(int32_t), 1, f);
+            std::fwrite(&numPos, sizeof(uint32_t), 1, f);
+            if (numPos > 0) {
+                std::fwrite(p.positions.data(), sizeof(int), numPos, f);
+            }
+        }
+
+        // Skip pointers
+        const auto* skipList = getSkipList(term);
+        uint32_t numSkip = skipList ? static_cast<uint32_t>(skipList->size()) : 0;
+        std::fwrite(&numSkip, sizeof(uint32_t), 1, f);
+        if (numSkip > 0) {
+            for (const auto& sp : *skipList) {
+                int32_t spDocId = sp.docId;
+                uint64_t spIdx = static_cast<uint64_t>(sp.index);
+                std::fwrite(&spDocId, sizeof(int32_t), 1, f);
+                std::fwrite(&spIdx, sizeof(uint64_t), 1, f);
+            }
+        }
+    }
+
+    std::fclose(f);
+    return true;
+}
+
+bool InvertedIndex::loadFromFile(const std::string& filepath) {
+    FILE* f = std::fopen(filepath.c_str(), "rb");
+    if (!f) return false;
+
+    uint32_t header[4] = {};
+    if (std::fread(header, sizeof(uint32_t), 4, f) != 4 || header[0] != IIDX_MAGIC || header[1] != IIDX_VERSION) {
+        std::fclose(f);
+        return false;
+    }
+
+    uint32_t numDocs = header[2];
+    uint32_t numTerms = header[3];
+
+    documents.clear();
+    docLengths.clear();
+    postingsMap.clear();
+    skipListMap.clear();
+    maxTermScores.clear();
+    index.clear();
+    termFrequencies.clear();
+    avgDocLenValid_ = false;
+
+    // 1. Documents
+    for (uint32_t i = 0; i < numDocs; ++i) {
+        int32_t docId = 0;
+        int32_t docLen = 0;
+        uint32_t contentLen = 0;
+        uint32_t tokensCount = 0;
+
+        if (std::fread(&docId, sizeof(int32_t), 1, f) != 1 ||
+            std::fread(&docLen, sizeof(int32_t), 1, f) != 1 ||
+            std::fread(&contentLen, sizeof(uint32_t), 1, f) != 1) {
+            std::fclose(f);
+            return false;
+        }
+
+        std::string content(contentLen, '\0');
+        if (contentLen > 0) {
+            if (std::fread(&content[0], sizeof(char), contentLen, f) != contentLen) {
+                std::fclose(f);
+                return false;
+            }
+        }
+
+        if (std::fread(&tokensCount, sizeof(uint32_t), 1, f) != 1) {
+            std::fclose(f);
+            return false;
+        }
+
+        std::vector<std::string> tokens;
+        tokens.reserve(tokensCount);
+        for (uint32_t t = 0; t < tokensCount; ++t) {
+            uint16_t tlen = 0;
+            if (std::fread(&tlen, sizeof(uint16_t), 1, f) != 1) {
+                std::fclose(f);
+                return false;
+            }
+            std::string tok(tlen, '\0');
+            if (tlen > 0) {
+                if (std::fread(&tok[0], sizeof(char), tlen, f) != tlen) {
+                    std::fclose(f);
+                    return false;
+                }
+            }
+            tokens.push_back(std::move(tok));
+        }
+
+        documents[docId] = Document{docId, std::move(content), std::move(tokens)};
+        docLengths[docId] = docLen;
+    }
+
+    // 2. Postings
+    for (uint32_t i = 0; i < numTerms; ++i) {
+        uint16_t termLen = 0;
+        if (std::fread(&termLen, sizeof(uint16_t), 1, f) != 1) {
+            std::fclose(f);
+            return false;
+        }
+        std::string term(termLen, '\0');
+        if (termLen > 0) {
+            if (std::fread(&term[0], sizeof(char), termLen, f) != termLen) {
+                std::fclose(f);
+                return false;
+            }
+        }
+
+        double maxScore = 0.0;
+        uint32_t numPostings = 0;
+        if (std::fread(&maxScore, sizeof(double), 1, f) != 1 ||
+            std::fread(&numPostings, sizeof(uint32_t), 1, f) != 1) {
+            std::fclose(f);
+            return false;
+        }
+        maxTermScores[term] = maxScore;
+
+        auto& pvec = postingsMap[term];
+        pvec.resize(numPostings);
+
+        for (uint32_t p = 0; p < numPostings; ++p) {
+            int32_t pDocId = 0;
+            int32_t pTf = 0;
+            uint32_t numPos = 0;
+
+            if (std::fread(&pDocId, sizeof(int32_t), 1, f) != 1 ||
+                std::fread(&pTf, sizeof(int32_t), 1, f) != 1 ||
+                std::fread(&numPos, sizeof(uint32_t), 1, f) != 1) {
+                std::fclose(f);
+                return false;
+            }
+
+            pvec[p].docId = pDocId;
+            pvec[p].tf = pTf;
+            pvec[p].positions.resize(numPos);
+
+            if (numPos > 0) {
+                if (std::fread(pvec[p].positions.data(), sizeof(int), numPos, f) != numPos) {
+                    std::fclose(f);
+                    return false;
+                }
+            }
+
+            index[term].insert(pDocId);
+            termFrequencies[term][pDocId] = pTf;
+        }
+
+        uint32_t numSkip = 0;
+        if (std::fread(&numSkip, sizeof(uint32_t), 1, f) != 1) {
+            std::fclose(f);
+            return false;
+        }
+        if (numSkip > 0) {
+            auto& svec = skipListMap[term];
+            svec.resize(numSkip);
+            for (uint32_t s = 0; s < numSkip; ++s) {
+                int32_t spDocId = 0;
+                uint64_t spIdx = 0;
+                if (std::fread(&spDocId, sizeof(int32_t), 1, f) != 1 ||
+                    std::fread(&spIdx, sizeof(uint64_t), 1, f) != 1) {
+                    std::fclose(f);
+                    return false;
+                }
+                svec[s] = SkipPointer{spDocId, static_cast<size_t>(spIdx)};
+            }
+        }
+    }
+
+    std::fclose(f);
+    return true;
+}

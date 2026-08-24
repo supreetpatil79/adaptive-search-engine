@@ -1,7 +1,6 @@
-// server/search_server.cpp
-// Implementation of production HTTP REST and Prometheus metrics search server.
-
 #include "search_server.h"
+#include "../query/snippet_generator.h"
+#include "../tokenizer/tokenizer.h"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <chrono>
@@ -286,6 +285,8 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
     totalSearchRequests_++;
     auto t0 = std::chrono::high_resolution_clock::now();
 
+    auto qTokens = Tokenizer::tokenize(query);
+
     std::ostringstream oss;
     oss << "{\"query\":\"" << escapeJson(query) << "\",\"mode\":\"" << mode << "\",\"results\":[";
 
@@ -312,12 +313,14 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
                 auto it = docContent_.find(r.docId);
                 if (it != docContent_.end()) content = it->second;
             }
+            std::string snippet = SnippetGenerator::generateSnippet(content, qTokens, 160, HighlightFormat::HTML);
             if (i > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(5) << r.rrfScore << ","
                 << "\"bm25Score\":" << std::setprecision(3) << r.bm25Score << ","
                 << "\"denseScore\":" << std::setprecision(3) << r.denseScore << ","
+                << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(content) << "\""
                 << "}";
             count++;
@@ -327,10 +330,12 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
         auto wandRes = engine_.searchWAND(query, topK, &stats);
         for (size_t i = 0; i < wandRes.size(); ++i) {
             const auto& r = wandRes[i];
+            std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
             if (i > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(4) << r.score << ","
+                << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
             count++;
@@ -339,10 +344,12 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
         auto phraseRes = engine_.searchPhrase(query);
         for (size_t i = 0; i < phraseRes.size() && static_cast<int>(i) < topK; ++i) {
             const auto& r = phraseRes[i];
+            std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
             if (i > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":1.0,"
+                << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
             count++;
@@ -352,15 +359,18 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
         auto lexicalRes = engine_.search(query, topK);
         for (size_t i = 0; i < lexicalRes.size(); ++i) {
             const auto& r = lexicalRes[i];
+            std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
             if (i > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(4) << r.score << ","
+                << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
             count++;
         }
     }
+
 
     auto t1 = std::chrono::high_resolution_clock::now();
     auto latencyUs = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();

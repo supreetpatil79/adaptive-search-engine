@@ -72,6 +72,12 @@ public:
     // Get document by ID
     const Document* getDocument(int docId) const;
 
+    // Save inverted index to binary file for instant cold-start loading
+    bool saveToFile(const std::string& filepath) const;
+
+    // Load inverted index from binary file
+    bool loadFromFile(const std::string& filepath);
+
     // Get average document length
     double getAverageDocLength() const;
 

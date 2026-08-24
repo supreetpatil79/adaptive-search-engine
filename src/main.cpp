@@ -30,6 +30,8 @@
 #include "../embed/hnsw_index.h"
 #include "../embed/ort_embedder.h"
 #include "../embed/rrf_fusion.h"
+#include "../query/snippet_generator.h"
+#include "../tokenizer/tokenizer.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -56,6 +58,7 @@ static void printBanner(int numDocs, bool hybridReady, bool usingHNSW) {
     std::cout << "Commands:\n";
     std::cout << "  <query>        hybrid search (lexical + dense if available)\n";
     std::cout << "  bm25 <q>       force lexical-only BM25 search\n";
+    std::cout << "  wand <q>       WAND dynamically pruned top-K BM25 search\n";
     std::cout << "  dense <q>      force semantic-only ANN search\n";
     std::cout << "  phrase <q>     positional phrase search (exact sequence)\n";
     std::cout << "  click <N>      record click on result N (personalisation)\n";
@@ -70,16 +73,17 @@ static void printLexicalResults(const std::vector<SearchResult>& results,
         std::cout << "  No results for: \"" << query << "\"\n\n";
         return;
     }
+    auto qTokens = Tokenizer::tokenize(query);
     std::cout << "  [BM25] Results for: \"" << query << "\""
               << "  [" << latencyUs << " µs]\n";
     std::cout << "  ────────────────────────────────────────────────────\n";
     for (int i = 0; i < static_cast<int>(results.size()); ++i) {
         const auto& r = results[i];
+        std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 130, HighlightFormat::ANSI);
         std::cout << "  " << std::setw(2) << (i + 1)
                   << ".  bm25=" << std::fixed << std::setprecision(4) << r.score
                   << "  doc#" << r.docId << "\n"
-                  << "      " << r.content.substr(0, 115)
-                  << (r.content.size() > 115 ? "…" : "") << "\n\n";
+                  << "      " << snippet << "\n\n";
     }
 }
 
@@ -90,18 +94,19 @@ static void printHybridResults(const std::vector<RRFResult>& results,
         std::cout << "  No results for: \"" << query << "\"\n\n";
         return;
     }
+    auto qTokens = Tokenizer::tokenize(query);
     std::cout << "  [Hybrid RRF] Results for: \"" << query << "\""
               << "  [" << latencyUs << " µs]\n";
     std::cout << "  ────────────────────────────────────────────────────\n";
     for (int i = 0; i < static_cast<int>(results.size()); ++i) {
         const auto& r = results[i];
+        std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 130, HighlightFormat::ANSI);
         std::cout << "  " << std::setw(2) << (i + 1)
                   << ".  rrf=" << std::fixed << std::setprecision(5) << r.rrfScore
                   << "  bm25=" << std::setprecision(3) << r.bm25Score
                   << "  cos="  << std::setprecision(3) << r.denseScore
                   << "  doc#"  << r.docId << "\n"
-                  << "      " << r.content.substr(0, 110)
-                  << (r.content.size() > 110 ? "…" : "") << "\n\n";
+                  << "      " << snippet << "\n\n";
     }
 }
 
@@ -250,6 +255,21 @@ int main(int argc, char* argv[]) {
             auto t1 = std::chrono::high_resolution_clock::now();
             printLexicalResults(lastLexical, q,
                 std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count());
+            lastWasHybrid = false;
+            continue;
+        }
+
+        // ── wand command ─────────────────────────────────────────────────
+        if (line.rfind("wand ", 0) == 0) {
+            std::string q = line.substr(5);
+            WANDStats stats;
+            auto t0 = std::chrono::high_resolution_clock::now();
+            lastLexical = engine.searchWAND(q, 10, &stats);
+            auto t1 = std::chrono::high_resolution_clock::now();
+            long long us = std::chrono::duration_cast<std::chrono::microseconds>(t1-t0).count();
+            printLexicalResults(lastLexical, q, us);
+            std::cout << "  [WAND Stats] Skipped: " << stats.totalCandidatesSkipped
+                      << " postings | Evaluated: " << stats.totalCandidatesEvaluated << "\n\n";
             lastWasHybrid = false;
             continue;
         }

@@ -5,6 +5,7 @@
 // Run: ./build/test_inverted_index
 
 #include "../index/inverted_index.h"
+#include "../utils/vbyte.h"
 #include <algorithm>
 #include <cassert>
 #include <iostream>
@@ -167,6 +168,81 @@ void test_segment_merging() {
     std::cout << "test_segment_merging PASSED\n";
 }
 
+void test_inverted_index_serialization() {
+    InvertedIndex index;
+    Document d1{1, "information retrieval system", {"inform", "retriev", "system"}};
+    Document d2{2, "neural network and search engine", {"neural", "network", "and", "search", "engin"}};
+    Document d3{3, "search engine indexing", {"search", "engin", "index"}};
+
+    index.addDocument(d1);
+    index.addDocument(d2);
+    index.addDocument(d3);
+    index.finalize();
+
+    std::string testPath = "/tmp/test_inverted_index.bin";
+    ASSERT_TRUE(index.saveToFile(testPath));
+
+    InvertedIndex loaded;
+    ASSERT_TRUE(loaded.loadFromFile(testPath));
+
+    ASSERT_EQ(loaded.getTotalDocuments(), 3);
+    ASSERT_EQ(loaded.getDocumentFrequency("search"), 2);
+    ASSERT_EQ(loaded.getDocumentFrequency("inform"), 1);
+    ASSERT_EQ(loaded.getDocumentFrequency("missing"), 0);
+
+    ASSERT_EQ(loaded.getTermFrequency("engin", 2), 1);
+    ASSERT_EQ(loaded.getTermFrequency("engin", 3), 1);
+
+    auto phraseRes = loaded.phraseSearch({"search", "engin"});
+    ASSERT_EQ(phraseRes.size(), 2);
+
+    const Document* doc1 = loaded.getDocument(1);
+    ASSERT_TRUE(doc1 != nullptr);
+    ASSERT_EQ(doc1->content, "information retrieval system");
+
+    std::cout << "test_inverted_index_serialization PASSED\n";
+}
+
+void test_vbyte_compression() {
+    // 1. Single integer encoding / decoding
+    uint8_t buf[8];
+    uint32_t decoded = 0;
+
+    size_t s1 = VByte::encodeUint32(0, buf);
+    ASSERT_EQ(s1, 1);
+    VByte::decodeUint32(buf, decoded);
+    ASSERT_EQ(decoded, 0);
+
+    size_t s2 = VByte::encodeUint32(127, buf);
+    ASSERT_EQ(s2, 1);
+    VByte::decodeUint32(buf, decoded);
+    ASSERT_EQ(decoded, 127);
+
+    size_t s3 = VByte::encodeUint32(128, buf);
+    ASSERT_EQ(s3, 2);
+    VByte::decodeUint32(buf, decoded);
+    ASSERT_EQ(decoded, 128);
+
+    size_t s4 = VByte::encodeUint32(1048576, buf);
+    ASSERT_TRUE(s4 >= 3);
+    VByte::decodeUint32(buf, decoded);
+    ASSERT_EQ(decoded, 1048576);
+
+    // 2. Vector delta encoding / decoding
+    std::vector<uint32_t> postingList = {10, 15, 23, 100, 105, 500, 10000};
+    auto compressed = VByte::encodeDelta(postingList);
+    // Delta encoding should be much smaller than 7 * 4 = 28 bytes
+    ASSERT_TRUE(compressed.size() <= 12);
+
+    auto decompressed = VByte::decodeDelta(compressed.data(), compressed.size());
+    ASSERT_EQ(decompressed.size(), postingList.size());
+    for (size_t i = 0; i < postingList.size(); ++i) {
+        ASSERT_EQ(decompressed[i], postingList[i]);
+    }
+
+    std::cout << "test_vbyte_compression PASSED\n";
+}
+
 int main() {
     std::cout << "=== Inverted Index Unit Tests ===\n\n";
 
@@ -174,6 +250,8 @@ int main() {
     test_phrase_search();
     test_skip_pointers_and_wand_scores();
     test_segment_merging();
+    test_inverted_index_serialization();
+    test_vbyte_compression();
 
     std::cout << "\n══════════════════════════════\n";
     std::cout << "Passed: " << passed << "\n";

@@ -44,10 +44,12 @@ set(CORE_SOURCES
     tokenizer/tokenizer.cpp
     query/stemmer.cpp
     query/spell_checker.cpp
+    query/snippet_generator.cpp
     adaptive/adaptive_ranker.cpp
     adaptive/user_profile.cpp
     search/search_engine.cpp
     utils/file_loader.cpp
+    utils/vbyte.cpp
 )
 
 # ── Embed module sources (require ORT) ────────────────────────────────────
@@ -200,6 +202,13 @@ add_executable(test_sq8
 )
 target_include_directories(test_sq8 PRIVATE ${ENGINE_INCLUDES})
 
+# ── Test: Snippet Generation & Highlighting ────────────────────────────────
+add_executable(test_snippet
+    tests/test_snippet.cpp
+    ${CORE_SOURCES}
+)
+target_include_directories(test_snippet PRIVATE ${ENGINE_INCLUDES})
+
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure
 enable_testing()
@@ -209,6 +218,7 @@ add_test(NAME stemmer_unit_test         COMMAND test_stemmer)
 add_test(NAME simd_unit_test            COMMAND test_simd)
 add_test(NAME inverted_index_unit_test  COMMAND test_inverted_index)
 add_test(NAME sq8_unit_test             COMMAND test_sq8)
+add_test(NAME snippet_unit_test         COMMAND test_snippet)
 
 # Tests that need data/documents.txt must run from project root
 set_tests_properties(rrf_unit_tests            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -216,6 +226,8 @@ set_tests_properties(concurrency_test          PROPERTIES WORKING_DIRECTORY "${C
 set_tests_properties(stemmer_unit_test         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(simd_unit_test            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(inverted_index_unit_test  PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(sq8_unit_test             PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(snippet_unit_test         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(sq8_unit_test             PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ── Build info ────────────────────────────────────────────────────────────
