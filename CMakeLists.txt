@@ -47,6 +47,7 @@ set(CORE_SOURCES
     query/stemmer.cpp
     query/spell_checker.cpp
     query/snippet_generator.cpp
+    query/prefix_trie.cpp
     adaptive/adaptive_ranker.cpp
     adaptive/user_profile.cpp
     search/search_engine.cpp
@@ -235,6 +236,13 @@ add_custom_command(TARGET test_cross_encoder POST_BUILD
     COMMENT "Copying libonnxruntime.dylib alongside test_cross_encoder"
 )
 
+# ── Test: PrefixTrie Autocomplete ──────────────────────────────────────────
+add_executable(test_prefix_trie
+    tests/test_prefix_trie.cpp
+    ${CORE_SOURCES}
+)
+target_include_directories(test_prefix_trie PRIVATE ${ENGINE_INCLUDES})
+
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure
 enable_testing()
@@ -247,6 +255,7 @@ add_test(NAME sq8_unit_test             COMMAND test_sq8)
 add_test(NAME snippet_unit_test         COMMAND test_snippet)
 add_test(NAME shards_unit_test          COMMAND test_shards)
 add_test(NAME cross_encoder_unit_test   COMMAND test_cross_encoder)
+add_test(NAME prefix_trie_unit_test     COMMAND test_prefix_trie)
 
 # Tests that need data/documents.txt must run from project root
 set_tests_properties(rrf_unit_tests            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -258,6 +267,7 @@ set_tests_properties(sq8_unit_test             PROPERTIES WORKING_DIRECTORY "${C
 set_tests_properties(snippet_unit_test         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(shards_unit_test          PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(cross_encoder_unit_test   PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(prefix_trie_unit_test     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

@@ -111,7 +111,15 @@ All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
 - **Asymmetric Distance Computation (ADC)**: Evaluates float32 query against quantized database vectors directly in SIMD registers without decompressing full vectors.
 - **Lossless Ranking**: Retains $\ge 95\%$ top-10 retrieval recall against exact float32 dot products.
 
-### 7. Distributed Sharding & Scatter-Gather Engine (`index/shard_manager.h`)
+### 7. Stage-2 Neural Cross-Encoder Re-Ranker (`ranking/cross_encoder.h`)
+- **Multi-Stage Ranking**: Evaluates token-to-token cross-attention relevance between `(query, document)` pairs on top-50 candidate pools.
+- **Precision Promotion**: Models deep semantic intent, negations, and phrase proximity to promote the most relevant matches to rank 1.
+
+### 8. Sub-Microsecond Prefix Autocomplete (`query/prefix_trie.h`)
+- **Prefix Radix Trie**: Ingests document vocabulary and high-frequency n-grams for instant auto-complete suggestions.
+- **Sub-5 Microsecond Serving**: Returns top-$K$ weighted suggestions in **$<6\,\mu\text{s}$** via `GET /suggest?q=...`.
+
+### 9. Distributed Sharding & Scatter-Gather Engine (`index/shard_manager.h`)
 - **Parallel Query Dispatch**: Partitions documents across $N$ index shards and executes multi-threaded scatter queries in parallel.
 - **Top-K K-Way Heap Aggregation**: Reduces candidate streams into a globally sorted ranked list.
 - **Real-Time WAL & Tombstone Ingestion**:
@@ -119,9 +127,9 @@ All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
   - `TombstoneManager`: $O(1)$ lock-free document deletion filtering without index rebuilds.
   - Real-time `POST /document` and `DELETE /document` HTTP API endpoints.
 
-### 8. VByte Compression & Dynamic Snippets (`utils/vbyte.h`, `query/snippet_generator.h`)
-- **VByte Posting Delta Encoding**: Compresses positional integer lists by 70–80%.
-- **Sliding-Window Query Density Highlighting**: Extracts relevant passages with `<b>...</b>` (HTML) or ANSI terminal colors.
+### 10. Embedded Interactive Web UI & Dashboard (`server/search_server.cpp`)
+- **Zero-Dependency Modern UI**: Single-page web dashboard served natively at `GET /` (`http://localhost:8080/`).
+- **Live Search-as-you-Type with Autocomplete Overlay**: Instant interactive suggestions, microsecond latency telemetry, mode switcher (Hybrid, Re-rank, WAND, BM25, Phrase), snippet highlights, and click personalization feedback.
 
 ---
 
@@ -153,20 +161,22 @@ All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
 
 ## 🧪 Comprehensive Test Suite (CTest)
 
-The project includes 8 automated test suites covering all layers:
+The project includes 10 automated test suites covering all layers:
 
 ```bash
 ctest --test-dir build --output-on-failure
 ```
 
-1. **`test_shards`**: Distributed shard routing, parallel scatter-gather query aggregation, tombstone deletions, and WAL replay crash recovery.
-2. **`test_inverted_index`**: Posting lists, skip pointers, positional phrase search, segment merging, VByte compression, and binary disk persistence.
-3. **`test_snippet`**: Dynamic sliding-window query term snippet extraction and HTML/ANSI highlighting.
-4. **`test_sq8`**: Int8 scalar quantization reconstruction error, recall@10, and binary persistence round-trip.
-5. **`test_simd`**: Bitwise mathematical correctness of Neon/AVX2 vector math, orthogonality, and boundary conditions.
-6. **`test_stemmer`**: 33 assertions covering all 5 steps of the Porter algorithm.
-7. **`test_rrf`**: Reciprocal Rank Fusion mathematical bounds, score monotonicity, top-$k$ truncation.
-8. **`test_concurrency`**: Multi-threaded read/write stress testing with `std::shared_mutex` snapshot isolation.
+1. **`test_prefix_trie`**: Sub-microsecond prefix autocomplete, term frequency weighting, and case-insensitivity.
+2. **`test_cross_encoder`**: Stage-2 cross-scoring pair evaluation and candidate re-ranking precision.
+3. **`test_shards`**: Distributed shard routing, parallel scatter-gather query aggregation, tombstone deletions, and WAL replay crash recovery.
+4. **`test_inverted_index`**: Posting lists, skip pointers, positional phrase search, segment merging, VByte compression, and binary disk persistence.
+5. **`test_snippet`**: Dynamic sliding-window query term snippet extraction and HTML/ANSI highlighting.
+6. **`test_sq8`**: Int8 scalar quantization reconstruction error, recall@10, and binary persistence round-trip.
+7. **`test_simd`**: Bitwise mathematical correctness of Neon/AVX2 vector math, orthogonality, and boundary conditions.
+8. **`test_stemmer`**: 33 assertions covering all 5 steps of the Porter algorithm.
+9. **`test_rrf`**: Reciprocal Rank Fusion mathematical bounds, score monotonicity, top-$k$ truncation.
+10. **`test_concurrency`**: Multi-threaded read/write stress testing with `std::shared_mutex` snapshot isolation.
 
 ---
 

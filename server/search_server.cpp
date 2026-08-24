@@ -89,7 +89,9 @@ SearchServer::SearchServer(SearchEngine& engine,
       flatIndex_(flatIndex),
       embedder_(embedder),
       docContent_(docContent),
-      startTime_(std::chrono::steady_clock::now()) {}
+      startTime_(std::chrono::steady_clock::now()) {
+    prefixTrie_.buildFromCorpus(docContent_);
+}
 
 SearchServer::~SearchServer() {
     stop();
@@ -125,28 +127,29 @@ bool SearchServer::start(int port, bool background) {
         return false;
     }
 
-    running_.store(true);
-    std::cout << "[SearchServer] HTTP Server listening on port " << port_ << " ...\n";
+    running_ = true;
+    std::cout << "[SearchServer] Listening on http://0.0.0.0:" << port_ << "\n";
+    std::cout << "[SearchServer] Endpoints: GET /, GET /search, GET /suggest, GET /metrics, GET /health, POST /click, POST /document, DELETE /document\n";
 
     if (background) {
         workerThread_ = std::thread(&SearchServer::serverLoop, this, serverFd_);
+        return true;
     } else {
         serverLoop(serverFd_);
+        return true;
     }
-    return true;
 }
 
 void SearchServer::stop() {
     if (running_.exchange(false)) {
         if (serverFd_ >= 0) {
-            shutdown(serverFd_, SHUT_RDWR);
             close(serverFd_);
             serverFd_ = -1;
         }
         if (workerThread_.joinable()) {
             workerThread_.join();
         }
-        std::cout << "[SearchServer] Server stopped.\n";
+        std::cout << "[SearchServer] Stopped.\n";
     }
 }
 
@@ -160,7 +163,7 @@ void SearchServer::serverLoop(int serverFd) {
             continue;
         }
 
-        // Process request in a worker thread or synchronously
+        // Dispatch client handling in a detached thread for multi-threaded serving
         std::thread([this, clientFd]() {
             handleClient(clientFd);
         }).detach();
@@ -179,8 +182,8 @@ void SearchServer::handleClient(int clientFd) {
 
     std::string req(buffer);
     std::istringstream iss(req);
-    std::string method, path, version;
-    iss >> method >> path >> version;
+    std::string method, path, httpVer;
+    iss >> method >> path >> httpVer;
 
     std::string responseBody;
     std::string contentType = "application/json";
@@ -203,6 +206,14 @@ void SearchServer::handleClient(int clientFd) {
     } else if (endpoint == "/metrics") {
         contentType = "text/plain; version=0.0.4";
         responseBody = handleMetrics();
+    } else if (endpoint == "/suggest" && method == "GET") {
+        auto params = parseQueryParams(queryStr);
+        std::string q = params["q"];
+        int topK = 5;
+        if (params.count("k")) {
+            try { topK = std::stoi(params["k"]); } catch (...) {}
+        }
+        responseBody = handleSuggest(q, topK);
     } else if (endpoint == "/search" && method == "GET") {
         auto params = parseQueryParams(queryStr);
         std::string q = params["q"];
@@ -280,6 +291,12 @@ std::string SearchServer::handleWebUI() {
   .search-input { width: 100%; padding: 1.1rem 1.4rem; font-size: 1.1rem; background: var(--bg-secondary); border: 2px solid var(--border); border-radius: 12px; color: #fff; outline: none; transition: all 0.2s ease; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
   .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
   
+  .suggest-box { position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-top: none; border-radius: 0 0 12px 12px; z-index: 100; box-shadow: 0 8px 30px rgba(0,0,0,0.5); overflow: hidden; display: none; }
+  .suggest-item { padding: 0.75rem 1.4rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; color: #cbd5e1; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .suggest-item:hover, .suggest-item.selected { background: rgba(59, 130, 246, 0.2); color: #fff; }
+  .suggest-item:last-child { border-bottom: none; }
+  .suggest-freq { font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
   .mode-selector { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 2rem; }
   .mode-pill { padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-muted); transition: all 0.15s ease; }
   .mode-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4); }
@@ -316,6 +333,7 @@ std::string SearchServer::handleWebUI() {
 <main>
   <div class="search-container">
     <input type="text" id="queryInput" class="search-input" placeholder="Search across 10,000+ documents (e.g. 'machine learning', 'cloud DevOps', 'cryptography')..." autofocus autocomplete="off">
+    <div class="suggest-box" id="suggestBox"></div>
   </div>
   <div class="mode-selector">
     <div class="mode-pill active" data-mode="hybrid">⚡ Hybrid (RRF)</div>
@@ -342,6 +360,7 @@ std::string SearchServer::handleWebUI() {
 <script>
 let currentMode = 'hybrid';
 let debounceTimer = null;
+let suggestDebounce = null;
 
 async function updateStatus() {
   try {
@@ -362,9 +381,51 @@ document.querySelectorAll('.mode-pill').forEach(pill => {
 });
 
 const queryInput = document.getElementById('queryInput');
+const suggestBox = document.getElementById('suggestBox');
+
 queryInput.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(executeSearch, 150);
+
+  clearTimeout(suggestDebounce);
+  suggestDebounce = setTimeout(fetchSuggestions, 80);
+});
+
+async function fetchSuggestions() {
+  const q = queryInput.value.trim();
+  if (q.length < 2) {
+    suggestBox.style.display = 'none';
+    return;
+  }
+  try {
+    const res = await fetch(`/suggest?q=${encodeURIComponent(q)}&k=5`);
+    const data = await res.json();
+    if (data.suggestions && data.suggestions.length > 0) {
+      suggestBox.innerHTML = data.suggestions.map(s => `
+        <div class="suggest-item" onclick="selectSuggestion('${s.text.replace(/'/g, "\\'")}')">
+          <span>🔍 ${s.text}</span>
+          <span class="suggest-freq">${s.frequency} hits</span>
+        </div>
+      `).join('');
+      suggestBox.style.display = 'block';
+    } else {
+      suggestBox.style.display = 'none';
+    }
+  } catch (e) {
+    suggestBox.style.display = 'none';
+  }
+}
+
+function selectSuggestion(text) {
+  queryInput.value = text;
+  suggestBox.style.display = 'none';
+  executeSearch();
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-container')) {
+    suggestBox.style.display = 'none';
+  }
 });
 
 async function executeSearch() {
@@ -641,6 +702,22 @@ std::string SearchServer::handleClick(const std::string& body) {
     return "{\"error\":\"Invalid docId payload\"}";
 }
 
+std::string SearchServer::handleSuggest(const std::string& prefix, int topK) {
+    auto t0 = std::chrono::high_resolution_clock::now();
+    auto suggestions = prefixTrie_.suggest(prefix, topK);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+
+    std::ostringstream oss;
+    oss << "{\"prefix\":\"" << escapeJson(prefix) << "\",\"latencyUs\":" << us << ",\"suggestions\":[";
+    for (size_t i = 0; i < suggestions.size(); ++i) {
+        if (i > 0) oss << ",";
+        oss << "{\"text\":\"" << escapeJson(suggestions[i].text) << "\",\"frequency\":" << suggestions[i].frequency << "}";
+    }
+    oss << "]}";
+    return oss.str();
+}
+
 std::string SearchServer::handleInsertDocument(const std::string& body) {
     // Parse docId and content: {"docId": 123, "content": "..."}
     int docId = 0;
@@ -671,6 +748,13 @@ std::string SearchServer::handleInsertDocument(const std::string& body) {
         engine_.finalizeIndex();
         docContent_[docId] = content;
         tombstones_.unmarkDeleted(docId);
+
+        // Update PrefixTrie
+        auto tokens = Tokenizer::tokenize(content);
+        for (const auto& t : tokens) {
+            if (t.size() >= 3) prefixTrie_.insert(t, 1);
+        }
+
         return "{\"status\":\"ok\",\"action\":\"inserted\",\"docId\":" + std::to_string(docId) + "}";
     }
     return "{\"error\":\"Invalid document payload (requires docId > 0 and non-empty content)\"}";
@@ -692,3 +776,4 @@ std::string SearchServer::handleDeleteDocument(const std::string& body) {
     }
     return "{\"error\":\"Invalid docId payload for deletion\"}";
 }
+

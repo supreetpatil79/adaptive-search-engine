@@ -7,6 +7,7 @@
 #include "../embed/ort_embedder.h"
 #include "../embed/rrf_fusion.h"
 #include "../index/tombstone.h"
+#include "../query/prefix_trie.h"
 #include "../ranking/cross_encoder.h"
 #include <atomic>
 #include <chrono>
@@ -21,6 +22,7 @@
 //   GET    /health    (JSON Health status)
 //   GET    /metrics   (Prometheus format)
 //   GET    /search?q=<query>&mode=<hybrid|rerank|bm25|wand|phrase>&k=<topK>
+//   GET    /suggest?q=<prefix>&k=<topK> (Query Autocomplete)
 //   POST   /click     {"docId": <id>}
 //   POST   /document  {"docId": <id>, "content": "..."}
 //   DELETE /document  {"docId": <id>}
@@ -43,6 +45,7 @@ public:
     bool isRunning() const { return running_.load(); }
 
     TombstoneManager& tombstones() { return tombstones_; }
+    PrefixTrie& prefixTrie() { return prefixTrie_; }
 
 private:
     void serverLoop(int serverFd);
@@ -50,6 +53,7 @@ private:
 
     std::string handleWebUI();
     std::string handleSearch(const std::string& query, const std::string& mode, int topK);
+    std::string handleSuggest(const std::string& prefix, int topK);
     std::string handleMetrics();
     std::string handleHealth();
     std::string handleClick(const std::string& body);
@@ -62,6 +66,7 @@ private:
     OrtEmbedder* embedder_;
     RRFFusion rrf_{60};
     CrossEncoder crossEncoder_;
+    PrefixTrie prefixTrie_;
     std::unordered_map<int, std::string> docContent_;
     TombstoneManager tombstones_;
 
