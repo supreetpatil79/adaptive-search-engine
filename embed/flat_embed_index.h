@@ -33,6 +33,7 @@ public:
     std::vector<std::pair<int, float>> search(const float* queryVec, int topK) const;
 
     int  numDocs()    const { return numDocs_;  }
+    int  size()       const { return numDocs_;  }
     int  dim()        const { return dim_;      }
     bool isLoaded()   const { return !data_.empty(); }
 

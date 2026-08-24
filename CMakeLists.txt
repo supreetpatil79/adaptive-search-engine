@@ -56,6 +56,8 @@ set(EMBED_SOURCES
     embed/hnsw_index.cpp
     embed/ort_embedder.cpp
     embed/rrf_fusion.cpp
+    embed/sq8_index.cpp
+    server/search_server.cpp
 )
 
 # ── Include directories ────────────────────────────────────────────────────
@@ -68,6 +70,7 @@ set(ENGINE_INCLUDES
     ${CMAKE_SOURCE_DIR}/query
     ${CMAKE_SOURCE_DIR}/ranking
     ${CMAKE_SOURCE_DIR}/search
+    ${CMAKE_SOURCE_DIR}/server
     ${CMAKE_SOURCE_DIR}/tokenizer
     ${CMAKE_SOURCE_DIR}/utils
     ${ORT_INCLUDE_DIR}
@@ -88,6 +91,22 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${ORT_LIB}"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/libonnxruntime.dylib"
     COMMENT "Copying libonnxruntime.dylib alongside executable"
+)
+
+# ── REST HTTP Server executable ───────────────────────────────────────────
+add_executable(adaptive-search-server
+    src/server_main.cpp
+    ${CORE_SOURCES}
+    ${EMBED_SOURCES}
+)
+target_include_directories(adaptive-search-server PRIVATE ${ENGINE_INCLUDES})
+target_link_libraries(adaptive-search-server PRIVATE "${ORT_LIB}")
+
+add_custom_command(TARGET adaptive-search-server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ORT_LIB}"
+        "$<TARGET_FILE_DIR:adaptive-search-server>/libonnxruntime.dylib"
+    COMMENT "Copying libonnxruntime.dylib alongside server executable"
 )
 
 # ── Benchmark: WAND Pruning vs Unpruned ────────────────────────────────────
@@ -152,7 +171,7 @@ add_executable(build_hnsw
 target_include_directories(build_hnsw PRIVATE ${ENGINE_INCLUDES})
 
 # ── Installation ───────────────────────────────────────────────────────────
-install(TARGETS ${PROJECT_NAME} build_hnsw DESTINATION bin)
+install(TARGETS ${PROJECT_NAME} adaptive-search-server build_hnsw DESTINATION bin)
 
 # ── Test: Porter Stemmer unit tests ────────────────────────────────────────
 add_executable(test_stemmer
@@ -167,19 +186,37 @@ add_executable(test_simd
 )
 target_include_directories(test_simd PRIVATE ${ENGINE_INCLUDES})
 
+# ── Test: Inverted Index correctness ───────────────────────────────────────
+add_executable(test_inverted_index
+    tests/test_inverted_index.cpp
+    ${CORE_SOURCES}
+)
+target_include_directories(test_inverted_index PRIVATE ${ENGINE_INCLUDES})
+
+# ── Test: SQ8 Scalar Quantization ──────────────────────────────────────────
+add_executable(test_sq8
+    tests/test_sq8.cpp
+    embed/sq8_index.cpp
+)
+target_include_directories(test_sq8 PRIVATE ${ENGINE_INCLUDES})
+
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure
 enable_testing()
-add_test(NAME rrf_unit_tests    COMMAND test_rrf)
-add_test(NAME concurrency_test  COMMAND test_concurrency)
-add_test(NAME stemmer_unit_test COMMAND test_stemmer)
-add_test(NAME simd_unit_test    COMMAND test_simd)
-# Tests that need data/documents.txt must run from project root
-set_tests_properties(rrf_unit_tests   PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-set_tests_properties(concurrency_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 30)
-set_tests_properties(stemmer_unit_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-set_tests_properties(simd_unit_test    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME rrf_unit_tests            COMMAND test_rrf)
+add_test(NAME concurrency_test          COMMAND test_concurrency)
+add_test(NAME stemmer_unit_test         COMMAND test_stemmer)
+add_test(NAME simd_unit_test            COMMAND test_simd)
+add_test(NAME inverted_index_unit_test  COMMAND test_inverted_index)
+add_test(NAME sq8_unit_test             COMMAND test_sq8)
 
+# Tests that need data/documents.txt must run from project root
+set_tests_properties(rrf_unit_tests            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(concurrency_test          PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 30)
+set_tests_properties(stemmer_unit_test         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(simd_unit_test            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(inverted_index_unit_test  PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(sq8_unit_test             PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

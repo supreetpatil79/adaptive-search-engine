@@ -46,21 +46,15 @@ jobs:
 
       - name: Build core targets
         run: |
-          cmake --build $BUILD_DIR --target test_rrf test_concurrency benchmark_pruning --parallel 4
+          cmake --build $BUILD_DIR --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 adaptive-search-server benchmark_pruning --parallel 4
 
-      - name: Run RRF unit tests (16 assertions)
+      - name: Run CTest test suite (all unit tests)
         run: |
-          $BUILD_DIR/test_rrf
-          echo "test_rrf exit code: $?"
-
-      - name: Run concurrency stress test
-        run: |
-          $BUILD_DIR/test_concurrency
-          echo "test_concurrency exit code: $?"
+          ctest --test-dir $BUILD_DIR --output-on-failure
 
       - name: Run pruning benchmark (smoke test)
         run: |
-          # No corpus on CI — just verify the binary exits cleanly with missing file
+          # Verify the binary runs cleanly with missing file error handling
           $BUILD_DIR/benchmark_pruning /nonexistent || true
 
   build-macos:
@@ -84,9 +78,9 @@ jobs:
       - name: Configure + Build
         run: |
           cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-macos --target test_rrf test_concurrency --parallel 4
+          cmake --build build-macos --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 adaptive-search-server --parallel 4
 
-      - name: Run tests
+      - name: Run CTest test suite (all unit tests)
         run: |
-          ./build-macos/test_rrf
-          ./build-macos/test_concurrency
+          ctest --test-dir build-macos --output-on-failure
+

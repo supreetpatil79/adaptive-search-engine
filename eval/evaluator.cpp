@@ -138,13 +138,17 @@ int main(int argc, char* argv[]) {
 
     int K = 10;
     double totalBM25_NDCG = 0.0;
+    double totalWAND_NDCG = 0.0;
     double totalHybrid_NDCG = 0.0;
+    size_t totalCandidatesSkipped = 0;
+    size_t totalCandidatesEvaluated = 0;
 
-    std::cout << std::left << std::setw(45) << "Query"
-              << std::setw(15) << "BM25 NDCG@10"
-              << std::setw(15) << "Hybrid NDCG@10"
-              << std::setw(15) << "Gain" << "\n";
-    std::cout << "--------------------------------------------------------------------------------------\n";
+    std::cout << std::left << std::setw(38) << "Query"
+              << std::setw(13) << "BM25"
+              << std::setw(13) << "WAND"
+              << std::setw(13) << "Hybrid"
+              << std::setw(12) << "Hybrid Gain" << "\n";
+    std::cout << "---------------------------------------------------------------------------------------\n";
 
     for (const auto& eq : evalSet) {
         // BM25 Retrieval
@@ -152,6 +156,16 @@ int main(int argc, char* argv[]) {
         std::vector<double> bm25Gains;
         for (const auto& r : bm25Res) {
             bm25Gains.push_back(calculateDocumentRelevance(r.content, eq.relevantKeywords));
+        }
+
+        // WAND Retrieval
+        WANDStats stats;
+        std::vector<SearchResult> wandRes = engine.searchWAND(eq.query, K, &stats);
+        totalCandidatesSkipped += stats.totalCandidatesSkipped;
+        totalCandidatesEvaluated += stats.totalCandidatesEvaluated;
+        std::vector<double> wandGains;
+        for (const auto& r : wandRes) {
+            wandGains.push_back(calculateDocumentRelevance(r.content, eq.relevantKeywords));
         }
 
         // Hybrid Retrieval (BM25 + ONNX Dense + RRF)
@@ -176,33 +190,41 @@ int main(int argc, char* argv[]) {
 
         double idcg = computeIDCG(allCorpusGains, K);
         double bm25_dcg = computeDCG(bm25Gains, K);
+        double wand_dcg = computeDCG(wandGains, K);
         double hybrid_dcg = computeDCG(hybridGains, K);
 
         double bm25_ndcg = (idcg > 0.0) ? bm25_dcg / idcg : 0.0;
+        double wand_ndcg = (idcg > 0.0) ? wand_dcg / idcg : 0.0;
         double hybrid_ndcg = (idcg > 0.0) ? hybrid_dcg / idcg : 0.0;
 
         totalBM25_NDCG += bm25_ndcg;
+        totalWAND_NDCG += wand_ndcg;
         totalHybrid_NDCG += hybrid_ndcg;
 
         double gainPct = (bm25_ndcg > 0.0) ? ((hybrid_ndcg - bm25_ndcg) / bm25_ndcg) * 100.0 : 0.0;
 
-        std::string shortQ = eq.query.substr(0, 42);
-        std::cout << std::left << std::setw(45) << shortQ
+        std::string shortQ = eq.query.substr(0, 36);
+        std::cout << std::left << std::setw(38) << shortQ
                   << std::fixed << std::setprecision(4)
-                  << std::setw(15) << bm25_ndcg
-                  << std::setw(15) << hybrid_ndcg
+                  << std::setw(13) << bm25_ndcg
+                  << std::setw(13) << wand_ndcg
+                  << std::setw(13) << hybrid_ndcg
                   << std::setprecision(1) << (gainPct >= 0 ? "+" : "") << gainPct << "%\n";
     }
 
-    std::cout << "--------------------------------------------------------------------------------------\n";
+    std::cout << "---------------------------------------------------------------------------------------\n";
     double meanBM25_NDCG = totalBM25_NDCG / evalSet.size();
+    double meanWAND_NDCG = totalWAND_NDCG / evalSet.size();
     double meanHybrid_NDCG = totalHybrid_NDCG / evalSet.size();
     double meanGainPct = ((meanHybrid_NDCG - meanBM25_NDCG) / meanBM25_NDCG) * 100.0;
 
-    std::cout << "Mean BM25 NDCG@10   : " << std::fixed << std::setprecision(4) << meanBM25_NDCG << "\n";
-    std::cout << "Mean Hybrid NDCG@10 : " << std::fixed << std::setprecision(4) << meanHybrid_NDCG << "\n";
-    std::cout << "Overall NDCG Gain   : " << std::fixed << std::setprecision(2) << (meanGainPct >= 0 ? "+" : "") << meanGainPct << "%\n";
-    std::cout << "======================================================================\n";
+    std::cout << "Mean BM25 NDCG@10      : " << std::fixed << std::setprecision(4) << meanBM25_NDCG << "\n";
+    std::cout << "Mean WAND NDCG@10      : " << std::fixed << std::setprecision(4) << meanWAND_NDCG << "\n";
+    std::cout << "Mean Hybrid NDCG@10    : " << std::fixed << std::setprecision(4) << meanHybrid_NDCG << "\n";
+    std::cout << "Overall Hybrid Gain    : " << std::fixed << std::setprecision(2) << (meanGainPct >= 0 ? "+" : "") << meanGainPct << "%\n";
+    std::cout << "WAND Pruning Efficiency: " << totalCandidatesSkipped << " postings skipped, "
+              << totalCandidatesEvaluated << " evaluated\n";
+    std::cout << "=======================================================================\n";
 
     return 0;
 }
