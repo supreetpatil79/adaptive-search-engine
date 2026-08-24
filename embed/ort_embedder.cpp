@@ -21,6 +21,11 @@ bool OrtEmbedder::load(const std::string& modelPath, const std::string& vocabPat
         while (std::getline(f, tok)) {
             vocab_.push_back(tok);
         }
+        // Build reverse lookup map once at load time (avoids static + race conditions).
+        vocabMap_.reserve(vocab_.size());
+        for (int64_t i = 0; i < static_cast<int64_t>(vocab_.size()); ++i) {
+            vocabMap_[vocab_[i]] = i;
+        }
         std::cout << "[OrtEmbedder] Vocab size: " << vocab_.size() << " tokens\n";
     }
 
@@ -67,7 +72,7 @@ std::vector<float> OrtEmbedder::encode(const std::string& text) const {
 
     std::vector<Ort::Value> outputs;
     try {
-        outputs = const_cast<Ort::Session&>(session_).Run(
+        outputs = session_.Run(
             Ort::RunOptions{nullptr},
             inputNames,  inputs,  3,
             outputNames, 1);
@@ -99,17 +104,7 @@ std::string OrtEmbedder::basicClean(const std::string& text) const {
 }
 
 std::vector<int64_t> OrtEmbedder::wordPiece(const std::string& word) const {
-    // Build a reverse lookup: token → id (done once, lazily; OK for query-length strings).
-    // For a full production tokeniser you'd build this map at load time.
-    static std::unordered_map<std::string, int64_t> vocabMap;
-    static bool mapBuilt = false;
-    if (!mapBuilt) {
-        for (int64_t i = 0; i < static_cast<int64_t>(vocab_.size()); ++i) {
-            vocabMap[vocab_[i]] = i;
-        }
-        mapBuilt = true;
-    }
-
+    // Uses vocabMap_ built at load() time — no static, no threading concerns.
     std::vector<int64_t> ids;
     if (word.empty()) return ids;
 
@@ -120,8 +115,8 @@ std::vector<int64_t> OrtEmbedder::wordPiece(const std::string& word) const {
         bool found = false;
         for (std::size_t end = word.size(); end > start; --end) {
             std::string sub = (first ? "" : "##") + word.substr(start, end - start);
-            auto it = vocabMap.find(sub);
-            if (it != vocabMap.end()) {
+            auto it = vocabMap_.find(sub);
+            if (it != vocabMap_.end()) {
                 ids.push_back(it->second);
                 start = end;
                 first = false;

@@ -6,6 +6,7 @@
 #include <onnxruntime_cxx_api.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // OrtEmbedder — encodes a single query string into a 384-dim unit vector
@@ -38,14 +39,17 @@ public:
 
 private:
     // ORT environment and session — Ort::Env must outlive session.
-    Ort::Env         env_{ORT_LOGGING_LEVEL_WARNING, "adaptive-search"};
-    Ort::Session     session_{nullptr};
+    Ort::Env           env_{ORT_LOGGING_LEVEL_WARNING, "adaptive-search"};
+    mutable Ort::Session session_{nullptr};   // mutable: Run() is logically const
     Ort::AllocatorWithDefaultOptions allocator_;
-    bool             sessionLoaded_ = false;
+    bool               sessionLoaded_ = false;
 
-    // Minimal WordPiece vocabulary for query tokenisation.
-    // Maps token_string → token_id.  Built once at load time from vocab.txt.
+    // Vocabulary: index → token string (used by wordPiece for reverse lookup).
     std::vector<std::string> vocab_;   // index = token_id
+
+    // Reverse lookup map built once at load() time (token_string → id).
+    // Stored as a member to avoid static and thread-safety concerns.
+    std::unordered_map<std::string, int64_t> vocabMap_;
 
     // Tokenise text → input_ids, attention_mask, token_type_ids
     // using basic WordPiece (max_seq_len = 128, CLS=101, SEP=102, PAD=0).

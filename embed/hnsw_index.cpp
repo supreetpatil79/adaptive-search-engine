@@ -11,6 +11,7 @@
 //   - Binary file format: header (magic+version+stats) + node data
 
 #include "hnsw_index.h"
+#include "../utils/simd_math.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -30,8 +31,6 @@ static constexpr uint32_t HNSW_VERSION = 1;
 HNSWIndex::HNSWIndex(int dim, int M, int efConstruction)
     : dim_(dim), M_(M), efConstruction_(efConstruction),
       mL_(1.0 / std::log(static_cast<double>(M))) {}
-
-#include "../utils/simd_math.h"
 
 // ── Distance helpers ─────────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 #include "flat_embed_index.h"
+#include "../utils/simd_math.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -44,8 +45,6 @@ bool FlatEmbedIndex::loadFromFile(const std::string& path) {
               << " × " << dim_ << " embeddings from " << path << "\n";
     return true;
 }
-
-#include "../utils/simd_math.h"
 
 std::vector<std::pair<int, float>>
 FlatEmbedIndex::search(const float* queryVec, int topK) const {

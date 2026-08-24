@@ -142,7 +142,6 @@ add_executable(test_rrf
     ${CORE_SOURCES}
 )
 target_include_directories(test_rrf PRIVATE ${ENGINE_INCLUDES})
-# test_rrf does not link ORT — it only tests RRFFusion which has no ORT dep.
 
 # ── Tool: Build HNSW graph from embeddings.bin ─────────────────────────────
 add_executable(build_hnsw
@@ -155,15 +154,32 @@ target_include_directories(build_hnsw PRIVATE ${ENGINE_INCLUDES})
 # ── Installation ───────────────────────────────────────────────────────────
 install(TARGETS ${PROJECT_NAME} build_hnsw DESTINATION bin)
 
+# ── Test: Porter Stemmer unit tests ────────────────────────────────────────
+add_executable(test_stemmer
+    tests/test_stemmer.cpp
+    query/stemmer.cpp
+)
+target_include_directories(test_stemmer PRIVATE ${ENGINE_INCLUDES})
+
+# ── Test: SIMD inner-product correctness ───────────────────────────────────
+add_executable(test_simd
+    tests/test_simd.cpp
+)
+target_include_directories(test_simd PRIVATE ${ENGINE_INCLUDES})
 
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure
 enable_testing()
-add_test(NAME rrf_unit_tests   COMMAND test_rrf)
-add_test(NAME concurrency_test COMMAND test_concurrency)
-# Both tests need data/documents.txt — run from the project root
+add_test(NAME rrf_unit_tests    COMMAND test_rrf)
+add_test(NAME concurrency_test  COMMAND test_concurrency)
+add_test(NAME stemmer_unit_test COMMAND test_stemmer)
+add_test(NAME simd_unit_test    COMMAND test_simd)
+# Tests that need data/documents.txt must run from project root
 set_tests_properties(rrf_unit_tests   PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(concurrency_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 30)
+set_tests_properties(stemmer_unit_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(simd_unit_test    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

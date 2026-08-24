@@ -99,7 +99,7 @@ All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
 - Binary graph persistence with configurable $M=16$ and $ef_{construction}=200$.
 
 ### 3. Query Expansion & Lexical Normalization (`query/`)
-- **Full 5-Step Porter Stemmer**: Handles suffix stripping rules (Steps 1a–5b), reducing variations like `"generalization"` $\rightarrow$ `"general"`.
+- **Full 5-Step Porter Stemmer**: Handles suffix stripping rules (Steps 1a–5b), reducing variations like `"generalization"` $\rightarrow$ `"gener"`, `"running"` $\rightarrow$ `"run"`.
 - **Vocabulary-Aware Spell Checker**: Dynamically scans indexed terms using Levenshtein distance with length pre-filtering to correct misspellings (e.g. `"lerning"` $\rightarrow$ `"learning"`).
 
 ### 4. Hybrid Retrieval & Reciprocal Rank Fusion (`embed/rrf_fusion.h`)

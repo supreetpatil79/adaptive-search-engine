@@ -31,8 +31,9 @@ double AdaptiveRanker::calculateScore(const std::vector<std::string>& queryToken
 std::vector<SearchResult> AdaptiveRanker::search(const std::string&  query,
                                                   const InvertedIndex& index,
                                                   int                  topK) const {
-    std::vector<std::string> queryTokens = Tokenizer::tokenize(query);
-    queryTokens = Tokenizer::removeStopWords(queryTokens);
+    // Must use tokenizeAndStem — the index was built with stemmed tokens.
+    // Using plain tokenize() would produce term mismatches (e.g. "running" vs "run").
+    std::vector<std::string> queryTokens = Tokenizer::tokenizeAndStem(query);
 
     if (queryTokens.empty()) return {};
 

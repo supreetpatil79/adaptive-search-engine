@@ -72,6 +72,12 @@ std::vector<SearchResult> SearchEngine::search(const std::string& rawQuery, int 
 
 std::vector<SearchResult> SearchEngine::searchWAND(const std::string& rawQuery, int topK, WANDStats* stats) {
     std::string query = spellCorrectQuery(rawQuery, index);
+
+    // Cache lookup — use "wand:" prefix to keep namespace separate from plain search().
+    std::string cacheKey = "wand:" + query;
+    std::vector<SearchResult> cached;
+    if (cache.get(cacheKey, cached)) return cached;
+
     std::vector<std::string> queryTokens = Tokenizer::tokenizeAndStem(query);
 
     std::vector<SearchResult> results = wandScorer.search(queryTokens, index, topK, stats);
@@ -86,6 +92,7 @@ std::vector<SearchResult> SearchEngine::searchWAND(const std::string& rawQuery, 
     }
     if (anyBoost) std::sort(results.begin(), results.end());
 
+    cache.put(cacheKey, results);
     return results;
 }
 
