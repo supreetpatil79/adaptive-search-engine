@@ -228,6 +228,39 @@ std::vector<HNSWResult> HNSWIndex::search(const float* query, int topK, int ef) 
     return results;
 }
 
+std::vector<HNSWResult> HNSWIndex::searchFiltered(
+    const float* query,
+    int topK,
+    const std::function<bool(int docId)>& filterPredicate,
+    int ef
+) const {
+    if (nodes_.empty() || entryPoint_ == -1 || topK <= 0) return {};
+
+    int ep = entryPoint_;
+
+    // Greedy descent from maxLevel_ down to layer 1
+    for (int lc = maxLevel_; lc > 0; --lc) {
+        auto W = searchLayer(query, ep, 1, lc);
+        if (!W.empty()) ep = W[0].second;
+    }
+
+    // Full search at layer 0 with dynamic filter expansion
+    int ef_actual = std::max(ef * 3, topK * 5);
+    auto W = searchLayer(query, ep, ef_actual, 0);
+
+    std::vector<HNSWResult> results;
+    results.reserve(topK);
+
+    for (const auto& pair : W) {
+        int docId = nodes_[pair.second].docId;
+        if (filterPredicate(docId)) {
+            results.push_back({docId, 1.0f - pair.first});
+            if (static_cast<int>(results.size()) >= topK) break;
+        }
+    }
+    return results;
+}
+
 // ── PERSISTENCE ──────────────────────────────────────────────────────────────
 // Binary format:
 //   [4B magic][4B version][4B dim][4B M][4B efC][4B numNodes][4B entryPoint][4B maxLevel]

@@ -43,6 +43,7 @@ set(CORE_SOURCES
     index/segment_builder.cpp
     index/wal.cpp
     index/shard_manager.cpp
+    index/metadata_index.cpp
     tokenizer/tokenizer.cpp
     query/stemmer.cpp
     query/spell_checker.cpp
@@ -243,6 +244,14 @@ add_executable(test_prefix_trie
 )
 target_include_directories(test_prefix_trie PRIVATE ${ENGINE_INCLUDES})
 
+# ── Test: Metadata Index & Filtered HNSW ────────────────────────────────────
+add_executable(test_metadata
+    tests/test_metadata.cpp
+    ${CORE_SOURCES}
+    embed/hnsw_index.cpp
+)
+target_include_directories(test_metadata PRIVATE ${ENGINE_INCLUDES})
+
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure
 enable_testing()
@@ -256,6 +265,7 @@ add_test(NAME snippet_unit_test         COMMAND test_snippet)
 add_test(NAME shards_unit_test          COMMAND test_shards)
 add_test(NAME cross_encoder_unit_test   COMMAND test_cross_encoder)
 add_test(NAME prefix_trie_unit_test     COMMAND test_prefix_trie)
+add_test(NAME metadata_unit_test        COMMAND test_metadata)
 
 # Tests that need data/documents.txt must run from project root
 set_tests_properties(rrf_unit_tests            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -268,6 +278,7 @@ set_tests_properties(snippet_unit_test         PROPERTIES WORKING_DIRECTORY "${C
 set_tests_properties(shards_unit_test          PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(cross_encoder_unit_test   PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(prefix_trie_unit_test     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(metadata_unit_test        PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

@@ -6,6 +6,7 @@
 #include "../embed/flat_embed_index.h"
 #include "../embed/ort_embedder.h"
 #include "../embed/rrf_fusion.h"
+#include "../index/metadata_index.h"
 #include "../index/tombstone.h"
 #include "../query/prefix_trie.h"
 #include "../ranking/cross_encoder.h"
@@ -21,7 +22,7 @@
 //   GET    /          (Interactive Web UI Search Engine Dashboard)
 //   GET    /health    (JSON Health status)
 //   GET    /metrics   (Prometheus format)
-//   GET    /search?q=<query>&mode=<hybrid|rerank|bm25|wand|phrase>&k=<topK>
+//   GET    /search?q=<query>&mode=<hybrid|rerank|bm25|wand|phrase>&k=<topK>&filter=<expr>
 //   GET    /suggest?q=<prefix>&k=<topK> (Query Autocomplete)
 //   POST   /click     {"docId": <id>}
 //   POST   /document  {"docId": <id>, "content": "..."}
@@ -46,13 +47,14 @@ public:
 
     TombstoneManager& tombstones() { return tombstones_; }
     PrefixTrie& prefixTrie() { return prefixTrie_; }
+    MetadataIndex& metadataIndex() { return metadataIndex_; }
 
 private:
     void serverLoop(int serverFd);
     void handleClient(int clientFd);
 
     std::string handleWebUI();
-    std::string handleSearch(const std::string& query, const std::string& mode, int topK);
+    std::string handleSearch(const std::string& query, const std::string& mode, int topK, const std::string& filterExpr = "");
     std::string handleSuggest(const std::string& prefix, int topK);
     std::string handleMetrics();
     std::string handleHealth();
@@ -67,6 +69,7 @@ private:
     RRFFusion rrf_{60};
     CrossEncoder crossEncoder_;
     PrefixTrie prefixTrie_;
+    MetadataIndex metadataIndex_;
     std::unordered_map<int, std::string> docContent_;
     TombstoneManager tombstones_;
 

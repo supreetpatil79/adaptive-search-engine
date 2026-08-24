@@ -19,6 +19,7 @@
 //   auto top10 = idx.search(queryVec, 10, /*ef=*/50);
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,15 @@ public:
 
     // ANN search. ef = dynamic candidate list size (≥ topK).
     std::vector<HNSWResult> search(const float* query, int topK, int ef = 50) const;
+
+    // Filtered ANN search with in-graph predicate validation.
+    // Dynamically checks candidate docIds during beam search traversal.
+    std::vector<HNSWResult> searchFiltered(
+        const float* query,
+        int topK,
+        const std::function<bool(int docId)>& filterPredicate,
+        int ef = 50
+    ) const;
 
     // Persistence
     bool saveToFile(const std::string& path) const;

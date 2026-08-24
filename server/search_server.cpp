@@ -91,6 +91,35 @@ SearchServer::SearchServer(SearchEngine& engine,
       docContent_(docContent),
       startTime_(std::chrono::steady_clock::now()) {
     prefixTrie_.buildFromCorpus(docContent_);
+
+    // Auto-generate structured metadata tags based on document text
+    for (const auto& pair : docContent_) {
+        int docId = pair.first;
+        const std::string& text = pair.second;
+
+        DocumentMetadata meta;
+        meta.docId = docId;
+
+        // Categorize
+        if (text.find("neural") != std::string::npos || text.find("learning") != std::string::npos || text.find("intelligence") != std::string::npos) {
+            meta.stringFields["category"] = "AI";
+        } else if (text.find("cloud") != std::string::npos || text.find("microservices") != std::string::npos || text.find("docker") != std::string::npos) {
+            meta.stringFields["category"] = "Cloud";
+        } else if (text.find("security") != std::string::npos || text.find("cryptography") != std::string::npos || text.find("cyber") != std::string::npos) {
+            meta.stringFields["category"] = "Security";
+        } else if (text.find("genome") != std::string::npos || text.find("dna") != std::string::npos || text.find("biology") != std::string::npos) {
+            meta.stringFields["category"] = "Genomics";
+        } else if (text.find("quantum") != std::string::npos || text.find("computing") != std::string::npos) {
+            meta.stringFields["category"] = "Quantum";
+        } else {
+            meta.stringFields["category"] = "General";
+        }
+
+        // Assign synthetic published year: 2022 + (docId % 4)
+        meta.numericFields["year"] = 2022.0 + (docId % 4);
+
+        metadataIndex_.setMetadata(docId, meta);
+    }
 }
 
 SearchServer::~SearchServer() {
@@ -218,11 +247,12 @@ void SearchServer::handleClient(int clientFd) {
         auto params = parseQueryParams(queryStr);
         std::string q = params["q"];
         std::string mode = params.count("mode") ? params["mode"] : "hybrid";
+        std::string filterExpr = params.count("filter") ? params["filter"] : "";
         int topK = 10;
         if (params.count("k")) {
             try { topK = std::stoi(params["k"]); } catch (...) {}
         }
-        responseBody = handleSearch(q, mode, topK);
+        responseBody = handleSearch(q, mode, topK, filterExpr);
     } else if (endpoint == "/click" && method == "POST") {
         auto bodyPos = req.find("\r\n\r\n");
         std::string body = (bodyPos != std::string::npos) ? req.substr(bodyPos + 4) : "";
@@ -547,7 +577,7 @@ std::string SearchServer::handleMetrics() {
     return oss.str();
 }
 
-std::string SearchServer::handleSearch(const std::string& query, const std::string& mode, int topK) {
+std::string SearchServer::handleSearch(const std::string& query, const std::string& mode, int topK, const std::string& filterExpr) {
     if (query.empty()) {
         return "{\"query\":\"\",\"mode\":\"" + mode + "\",\"total\":0,\"results\":[]}";
     }
@@ -556,9 +586,10 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
     auto t0 = std::chrono::high_resolution_clock::now();
 
     auto qTokens = Tokenizer::tokenize(query);
+    MetadataBitset filterMask = metadataIndex_.evaluateFilter(filterExpr, engine_.totalDocs());
 
     std::ostringstream oss;
-    oss << "{\"query\":\"" << escapeJson(query) << "\",\"mode\":\"" << mode << "\",\"results\":[";
+    oss << "{\"query\":\"" << escapeJson(query) << "\",\"mode\":\"" << mode << "\",\"filter\":\"" << escapeJson(filterExpr) << "\",\"results\":[";
 
     int count = 0;
     bool hybridPossible = (embedder_ && embedder_->isLoaded() && (hnswIndex_ || flatIndex_));
@@ -566,11 +597,16 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
     if (mode == "rerank") {
         // Stage-1: Retrieve Top-50 candidates via Hybrid / BM25
         auto l1Candidates = engine_.search(query, topK * 5);
-        auto reranked = crossEncoder_.rerank(query, l1Candidates, topK);
+        auto reranked = crossEncoder_.rerank(query, l1Candidates, topK * 2);
 
         for (size_t i = 0; i < reranked.size(); ++i) {
             const auto& r = reranked[i];
-            if (tombstones_.isDeleted(r.docId)) continue;
+            if (tombstones_.isDeleted(r.docId) || !filterMask.test(r.docId)) continue;
+
+            DocumentMetadata meta;
+            metadataIndex_.getMetadata(r.docId, &meta);
+            std::string cat = meta.stringFields.count("category") ? meta.stringFields["category"] : "General";
+            int year = meta.numericFields.count("year") ? static_cast<int>(meta.numericFields["year"]) : 2024;
 
             std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
             if (count > 0) oss << ",";
@@ -578,6 +614,8 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(5) << r.score << ","
                 << "\"l1Score\":" << std::setprecision(3) << r.l1Score << ","
+                << "\"category\":\"" << cat << "\","
+                << "\"year\":" << year << ","
                 << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
@@ -590,16 +628,28 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
         std::vector<std::pair<int, float>> denseRes;
 
         if (hnswIndex_) {
-            auto hnswMatches = hnswIndex_->search(qvec.data(), topK * 2, 50);
+            auto hnswMatches = hnswIndex_->searchFiltered(qvec.data(), topK * 2, [&](int d) {
+                return filterMask.test(d) && !tombstones_.isDeleted(d);
+            }, 50);
             for (const auto& m : hnswMatches) denseRes.emplace_back(m.docId, m.distance);
         } else if (flatIndex_) {
-            denseRes = flatIndex_->search(qvec.data(), topK * 2);
+            auto rawDense = flatIndex_->search(qvec.data(), topK * 4);
+            for (const auto& p : rawDense) {
+                if (filterMask.test(p.first) && !tombstones_.isDeleted(p.first)) {
+                    denseRes.push_back(p);
+                }
+            }
         }
 
         auto fused = rrf_.fuse(lexicalRes, denseRes, topK * 2);
         for (size_t i = 0; i < fused.size(); ++i) {
             const auto& r = fused[i];
-            if (tombstones_.isDeleted(r.docId)) continue;
+            if (tombstones_.isDeleted(r.docId) || !filterMask.test(r.docId)) continue;
+
+            DocumentMetadata meta;
+            metadataIndex_.getMetadata(r.docId, &meta);
+            std::string cat = meta.stringFields.count("category") ? meta.stringFields["category"] : "General";
+            int year = meta.numericFields.count("year") ? static_cast<int>(meta.numericFields["year"]) : 2024;
 
             std::string content = r.content;
             if (content.empty()) {
@@ -613,6 +663,8 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
                 << "\"score\":" << std::fixed << std::setprecision(5) << r.rrfScore << ","
                 << "\"bm25Score\":" << std::setprecision(3) << r.bm25Score << ","
                 << "\"denseScore\":" << std::setprecision(3) << r.denseScore << ","
+                << "\"category\":\"" << cat << "\","
+                << "\"year\":" << year << ","
                 << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(content) << "\""
                 << "}";
@@ -621,16 +673,23 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
         }
     } else if (mode == "wand") {
         WANDStats stats;
-        auto wandRes = engine_.searchWAND(query, topK * 2, &stats);
+        auto wandRes = engine_.searchWAND(query, topK * 3, &stats);
         for (size_t i = 0; i < wandRes.size(); ++i) {
             const auto& r = wandRes[i];
-            if (tombstones_.isDeleted(r.docId)) continue;
+            if (tombstones_.isDeleted(r.docId) || !filterMask.test(r.docId)) continue;
+
+            DocumentMetadata meta;
+            metadataIndex_.getMetadata(r.docId, &meta);
+            std::string cat = meta.stringFields.count("category") ? meta.stringFields["category"] : "General";
+            int year = meta.numericFields.count("year") ? static_cast<int>(meta.numericFields["year"]) : 2024;
 
             std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
             if (count > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(4) << r.score << ","
+                << "\"category\":\"" << cat << "\","
+                << "\"year\":" << year << ","
                 << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
@@ -641,13 +700,20 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
         auto phraseRes = engine_.searchPhrase(query);
         for (size_t i = 0; i < phraseRes.size(); ++i) {
             const auto& r = phraseRes[i];
-            if (tombstones_.isDeleted(r.docId)) continue;
+            if (tombstones_.isDeleted(r.docId) || !filterMask.test(r.docId)) continue;
+
+            DocumentMetadata meta;
+            metadataIndex_.getMetadata(r.docId, &meta);
+            std::string cat = meta.stringFields.count("category") ? meta.stringFields["category"] : "General";
+            int year = meta.numericFields.count("year") ? static_cast<int>(meta.numericFields["year"]) : 2024;
 
             std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
             if (count > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":1.0,"
+                << "\"category\":\"" << cat << "\","
+                << "\"year\":" << year << ","
                 << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
@@ -656,16 +722,23 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
         }
     } else {
         // BM25 default
-        auto lexicalRes = engine_.search(query, topK * 2);
+        auto lexicalRes = engine_.search(query, topK * 3);
         for (size_t i = 0; i < lexicalRes.size(); ++i) {
             const auto& r = lexicalRes[i];
-            if (tombstones_.isDeleted(r.docId)) continue;
+            if (tombstones_.isDeleted(r.docId) || !filterMask.test(r.docId)) continue;
+
+            DocumentMetadata meta;
+            metadataIndex_.getMetadata(r.docId, &meta);
+            std::string cat = meta.stringFields.count("category") ? meta.stringFields["category"] : "General";
+            int year = meta.numericFields.count("year") ? static_cast<int>(meta.numericFields["year"]) : 2024;
 
             std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
             if (count > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(4) << r.score << ","
+                << "\"category\":\"" << cat << "\","
+                << "\"year\":" << year << ","
                 << "\"snippet\":\"" << escapeJson(snippet) << "\","
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
