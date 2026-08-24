@@ -41,6 +41,8 @@ set(CORE_SOURCES
     index/inverted_index.cpp
     index/concurrent_index.cpp
     index/segment_builder.cpp
+    index/wal.cpp
+    index/shard_manager.cpp
     tokenizer/tokenizer.cpp
     query/stemmer.cpp
     query/spell_checker.cpp
@@ -209,6 +211,13 @@ add_executable(test_snippet
 )
 target_include_directories(test_snippet PRIVATE ${ENGINE_INCLUDES})
 
+# ── Test: Distributed Shards & WAL ─────────────────────────────────────────
+add_executable(test_shards
+    tests/test_shards.cpp
+    ${CORE_SOURCES}
+)
+target_include_directories(test_shards PRIVATE ${ENGINE_INCLUDES})
+
 # ── CTest integration ─────────────────────────────────────────────────────
 # Run: cmake --build build && ctest --test-dir build --output-on-failure
 enable_testing()
@@ -219,6 +228,7 @@ add_test(NAME simd_unit_test            COMMAND test_simd)
 add_test(NAME inverted_index_unit_test  COMMAND test_inverted_index)
 add_test(NAME sq8_unit_test             COMMAND test_sq8)
 add_test(NAME snippet_unit_test         COMMAND test_snippet)
+add_test(NAME shards_unit_test          COMMAND test_shards)
 
 # Tests that need data/documents.txt must run from project root
 set_tests_properties(rrf_unit_tests            PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -228,7 +238,7 @@ set_tests_properties(simd_unit_test            PROPERTIES WORKING_DIRECTORY "${C
 set_tests_properties(inverted_index_unit_test  PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(sq8_unit_test             PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(snippet_unit_test         PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-set_tests_properties(sq8_unit_test             PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_tests_properties(shards_unit_test          PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Compiler    : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

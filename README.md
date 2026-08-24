@@ -111,12 +111,17 @@ All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
 - **Asymmetric Distance Computation (ADC)**: Evaluates float32 query against quantized database vectors directly in SIMD registers without decompressing full vectors.
 - **Lossless Ranking**: Retains $\ge 95\%$ top-10 retrieval recall against exact float32 dot products.
 
-### 6. Production REST HTTP & Prometheus Metrics Server (`server/search_server.h`)
-- High-throughput embedded HTTP REST engine with zero external dependencies.
-- **`GET /search?q=...&mode=hybrid|bm25|wand|phrase&k=10`**: Low-latency JSON search endpoint.
-- **`GET /metrics`**: Standard Prometheus metrics exporter (`search_requests_total`, `search_latency_microseconds_total`, `search_avg_latency_milliseconds`, `search_clicks_total`, `search_indexed_docs`).
-- **`POST /click`**: Real-time click feedback for profile-based personalization.
-- **`GET /health`**: Healthcheck and corpus status probe.
+### 7. Distributed Sharding & Scatter-Gather Engine (`index/shard_manager.h`)
+- **Parallel Query Dispatch**: Partitions documents across $N$ index shards and executes multi-threaded scatter queries in parallel.
+- **Top-K K-Way Heap Aggregation**: Reduces candidate streams into a globally sorted ranked list.
+- **Real-Time WAL & Tombstone Ingestion**:
+  - `WriteAheadLog`: Durability and replay recovery for real-time document mutations.
+  - `TombstoneManager`: $O(1)$ lock-free document deletion filtering without index rebuilds.
+  - Real-time `POST /document` and `DELETE /document` HTTP API endpoints.
+
+### 8. VByte Compression & Dynamic Snippets (`utils/vbyte.h`, `query/snippet_generator.h`)
+- **VByte Posting Delta Encoding**: Compresses positional integer lists by 70–80%.
+- **Sliding-Window Query Density Highlighting**: Extracts relevant passages with `<b>...</b>` (HTML) or ANSI terminal colors.
 
 ---
 
@@ -148,18 +153,20 @@ All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
 
 ## 🧪 Comprehensive Test Suite (CTest)
 
-The project includes 6 automated test suites covering all layers:
+The project includes 8 automated test suites covering all layers:
 
 ```bash
 ctest --test-dir build --output-on-failure
 ```
 
-1. **`test_inverted_index`**: Posting lists, skip pointers, positional phrase search, segment merging, vocabulary extraction.
-2. **`test_simd`**: Bitwise mathematical correctness of Neon/AVX2 vector math, orthogonality, and boundary conditions.
-3. **`test_stemmer`**: 33 assertions covering all 5 steps of the Porter algorithm.
-4. **`test_rrf`**: Reciprocal Rank Fusion mathematical bounds, score monotonicity, top-$k$ truncation.
-5. **`test_concurrency`**: Multi-threaded read/write stress testing with `std::shared_mutex` snapshot isolation.
-6. **`test_sq8`**: Int8 scalar quantization reconstruction error, recall@10, and binary persistence round-trip.
+1. **`test_shards`**: Distributed shard routing, parallel scatter-gather query aggregation, tombstone deletions, and WAL replay crash recovery.
+2. **`test_inverted_index`**: Posting lists, skip pointers, positional phrase search, segment merging, VByte compression, and binary disk persistence.
+3. **`test_snippet`**: Dynamic sliding-window query term snippet extraction and HTML/ANSI highlighting.
+4. **`test_sq8`**: Int8 scalar quantization reconstruction error, recall@10, and binary persistence round-trip.
+5. **`test_simd`**: Bitwise mathematical correctness of Neon/AVX2 vector math, orthogonality, and boundary conditions.
+6. **`test_stemmer`**: 33 assertions covering all 5 steps of the Porter algorithm.
+7. **`test_rrf`**: Reciprocal Rank Fusion mathematical bounds, score monotonicity, top-$k$ truncation.
+8. **`test_concurrency`**: Multi-threaded read/write stress testing with `std::shared_mutex` snapshot isolation.
 
 ---
 

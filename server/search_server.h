@@ -6,6 +6,7 @@
 #include "../embed/flat_embed_index.h"
 #include "../embed/ort_embedder.h"
 #include "../embed/rrf_fusion.h"
+#include "../index/tombstone.h"
 #include <atomic>
 #include <chrono>
 #include <string>
@@ -15,10 +16,12 @@
 
 // SearchServer — Production HTTP REST & Metrics Server for Adaptive Search Engine.
 // Exposes:
-//   GET  /health
-//   GET  /metrics (Prometheus format)
-//   GET  /search?q=<query>&mode=<hybrid|bm25|wand|phrase>&k=<topK>
-//   POST /click  {"docId": <id>}
+//   GET    /health
+//   GET    /metrics (Prometheus format)
+//   GET    /search?q=<query>&mode=<hybrid|bm25|wand|phrase>&k=<topK>
+//   POST   /click     {"docId": <id>}
+//   POST   /document  {"docId": <id>, "content": "..."}
+//   DELETE /document  {"docId": <id>}
 
 class SearchServer {
 public:
@@ -37,6 +40,8 @@ public:
 
     bool isRunning() const { return running_.load(); }
 
+    TombstoneManager& tombstones() { return tombstones_; }
+
 private:
     void serverLoop(int serverFd);
     void handleClient(int clientFd);
@@ -45,6 +50,8 @@ private:
     std::string handleMetrics();
     std::string handleHealth();
     std::string handleClick(const std::string& body);
+    std::string handleInsertDocument(const std::string& body);
+    std::string handleDeleteDocument(const std::string& body);
 
     SearchEngine& engine_;
     HNSWIndex* hnswIndex_;
@@ -52,6 +59,7 @@ private:
     OrtEmbedder* embedder_;
     RRFFusion rrf_{60};
     std::unordered_map<int, std::string> docContent_;
+    TombstoneManager tombstones_;
 
     int serverFd_{-1};
     int port_{8080};

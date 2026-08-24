@@ -213,6 +213,14 @@ void SearchServer::handleClient(int clientFd) {
         auto bodyPos = req.find("\r\n\r\n");
         std::string body = (bodyPos != std::string::npos) ? req.substr(bodyPos + 4) : "";
         responseBody = handleClick(body);
+    } else if (endpoint == "/document" && method == "POST") {
+        auto bodyPos = req.find("\r\n\r\n");
+        std::string body = (bodyPos != std::string::npos) ? req.substr(bodyPos + 4) : "";
+        responseBody = handleInsertDocument(body);
+    } else if (endpoint == "/document" && (method == "DELETE" || method == "POST")) {
+        auto bodyPos = req.find("\r\n\r\n");
+        std::string body = (bodyPos != std::string::npos) ? req.substr(bodyPos + 4) : "";
+        responseBody = handleDeleteDocument(body);
     } else {
         statusCode = 404;
         statusText = "Not Found";
@@ -305,16 +313,18 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
             denseRes = flatIndex_->search(qvec.data(), topK * 2);
         }
 
-        auto fused = rrf_.fuse(lexicalRes, denseRes, topK);
+        auto fused = rrf_.fuse(lexicalRes, denseRes, topK * 2);
         for (size_t i = 0; i < fused.size(); ++i) {
             const auto& r = fused[i];
+            if (tombstones_.isDeleted(r.docId)) continue;
+
             std::string content = r.content;
             if (content.empty()) {
                 auto it = docContent_.find(r.docId);
                 if (it != docContent_.end()) content = it->second;
             }
             std::string snippet = SnippetGenerator::generateSnippet(content, qTokens, 160, HighlightFormat::HTML);
-            if (i > 0) oss << ",";
+            if (count > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(5) << r.rrfScore << ","
@@ -324,14 +334,17 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
                 << "\"content\":\"" << escapeJson(content) << "\""
                 << "}";
             count++;
+            if (count >= topK) break;
         }
     } else if (mode == "wand") {
         WANDStats stats;
-        auto wandRes = engine_.searchWAND(query, topK, &stats);
+        auto wandRes = engine_.searchWAND(query, topK * 2, &stats);
         for (size_t i = 0; i < wandRes.size(); ++i) {
             const auto& r = wandRes[i];
+            if (tombstones_.isDeleted(r.docId)) continue;
+
             std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
-            if (i > 0) oss << ",";
+            if (count > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(4) << r.score << ","
@@ -339,13 +352,16 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
             count++;
+            if (count >= topK) break;
         }
     } else if (mode == "phrase") {
         auto phraseRes = engine_.searchPhrase(query);
-        for (size_t i = 0; i < phraseRes.size() && static_cast<int>(i) < topK; ++i) {
+        for (size_t i = 0; i < phraseRes.size(); ++i) {
             const auto& r = phraseRes[i];
+            if (tombstones_.isDeleted(r.docId)) continue;
+
             std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
-            if (i > 0) oss << ",";
+            if (count > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":1.0,"
@@ -353,14 +369,17 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
             count++;
+            if (count >= topK) break;
         }
     } else {
         // BM25 default
-        auto lexicalRes = engine_.search(query, topK);
+        auto lexicalRes = engine_.search(query, topK * 2);
         for (size_t i = 0; i < lexicalRes.size(); ++i) {
             const auto& r = lexicalRes[i];
+            if (tombstones_.isDeleted(r.docId)) continue;
+
             std::string snippet = SnippetGenerator::generateSnippet(r.content, qTokens, 160, HighlightFormat::HTML);
-            if (i > 0) oss << ",";
+            if (count > 0) oss << ",";
             oss << "{"
                 << "\"docId\":" << r.docId << ","
                 << "\"score\":" << std::fixed << std::setprecision(4) << r.score << ","
@@ -368,8 +387,10 @@ std::string SearchServer::handleSearch(const std::string& query, const std::stri
                 << "\"content\":\"" << escapeJson(r.content) << "\""
                 << "}";
             count++;
+            if (count >= topK) break;
         }
     }
+
 
 
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -396,4 +417,56 @@ std::string SearchServer::handleClick(const std::string& body) {
         }
     }
     return "{\"error\":\"Invalid docId payload\"}";
+}
+
+std::string SearchServer::handleInsertDocument(const std::string& body) {
+    // Parse docId and content: {"docId": 123, "content": "..."}
+    int docId = 0;
+    std::string content;
+
+    auto idPos = body.find("\"docId\"");
+    if (idPos != std::string::npos) {
+        auto colon = body.find(':', idPos);
+        if (colon != std::string::npos) {
+            std::istringstream iss(body.substr(colon + 1));
+            iss >> docId;
+        }
+    }
+
+    auto contentPos = body.find("\"content\"");
+    if (contentPos != std::string::npos) {
+        auto quote1 = body.find('"', contentPos + 9);
+        if (quote1 != std::string::npos) {
+            auto quote2 = body.find('"', quote1 + 1);
+            if (quote2 != std::string::npos) {
+                content = body.substr(quote1 + 1, quote2 - quote1 - 1);
+            }
+        }
+    }
+
+    if (docId > 0 && !content.empty()) {
+        engine_.addDocument(docId, content);
+        engine_.finalizeIndex();
+        docContent_[docId] = content;
+        tombstones_.unmarkDeleted(docId);
+        return "{\"status\":\"ok\",\"action\":\"inserted\",\"docId\":" + std::to_string(docId) + "}";
+    }
+    return "{\"error\":\"Invalid document payload (requires docId > 0 and non-empty content)\"}";
+}
+
+std::string SearchServer::handleDeleteDocument(const std::string& body) {
+    // Parse docId: {"docId": 123}
+    auto pos = body.find("\"docId\"");
+    if (pos != std::string::npos) {
+        auto colon = body.find(':', pos);
+        if (colon != std::string::npos) {
+            int docId = 0;
+            std::istringstream iss(body.substr(colon + 1));
+            if (iss >> docId && docId > 0) {
+                tombstones_.markDeleted(docId);
+                return "{\"status\":\"ok\",\"action\":\"deleted\",\"docId\":" + std::to_string(docId) + "}";
+            }
+        }
+    }
+    return "{\"error\":\"Invalid docId payload for deletion\"}";
 }
