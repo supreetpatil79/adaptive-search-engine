@@ -23,14 +23,40 @@ if(ENABLE_SANITIZERS AND NOT MSVC)
 endif()
 
 # ── ONNX Runtime ──────────────────────────────────────────────────────────
-# Prebuilt SDK downloaded to third_party/onnxruntime-osx-arm64-1.28.0/
-set(ORT_ROOT "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-osx-arm64-1.28.0")
-set(ORT_INCLUDE_DIR "${ORT_ROOT}/include")
-set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.dylib")
+if(NOT DEFINED ORT_ROOT)
+    file(GLOB ORT_CANDIDATES
+        "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-osx-arm64-*"
+        "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-linux-x64-*"
+        "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-*"
+    )
+    if(ORT_CANDIDATES)
+        list(GET ORT_CANDIDATES 0 ORT_ROOT)
+    else()
+        if(APPLE)
+            set(ORT_ROOT "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-osx-arm64-1.28.0")
+        else()
+            set(ORT_ROOT "${CMAKE_SOURCE_DIR}/third_party/onnxruntime-linux-x64-1.18.0")
+        endif()
+    endif()
+endif()
+
+if(NOT DEFINED ORT_INCLUDE_DIR)
+    set(ORT_INCLUDE_DIR "${ORT_ROOT}/include")
+endif()
+
+if(NOT DEFINED ORT_LIB)
+    if(APPLE)
+        set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.dylib")
+    else()
+        set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.so")
+    endif()
+endif()
+
+get_filename_component(ORT_LIB_FILENAME "${ORT_LIB}" NAME)
 
 if(NOT EXISTS "${ORT_INCLUDE_DIR}/onnxruntime_cxx_api.h")
     message(FATAL_ERROR "ONNX Runtime headers not found at ${ORT_INCLUDE_DIR}.\n"
-            "Run: ./scripts/setup_ort.sh  or download manually.")
+            "Download ONNX Runtime into third_party/ or set ORT_ROOT.")
 endif()
 
 # ── Core engine sources (no ORT dependency) ────────────────────────────────
@@ -92,12 +118,12 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE ${ENGINE_INCLUDES})
 target_link_libraries(${PROJECT_NAME} PRIVATE "${ORT_LIB}")
 
-# Copy libonnxruntime.dylib next to the binary so it can be found at runtime.
+# Copy ONNX Runtime library next to the binary so it can be found at runtime.
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${ORT_LIB}"
-        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/libonnxruntime.dylib"
-    COMMENT "Copying libonnxruntime.dylib alongside executable"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/${ORT_LIB_FILENAME}"
+    COMMENT "Copying ${ORT_LIB_FILENAME} alongside executable"
 )
 
 # ── REST HTTP Server executable ───────────────────────────────────────────
@@ -112,8 +138,8 @@ target_link_libraries(adaptive-search-server PRIVATE "${ORT_LIB}")
 add_custom_command(TARGET adaptive-search-server POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${ORT_LIB}"
-        "$<TARGET_FILE_DIR:adaptive-search-server>/libonnxruntime.dylib"
-    COMMENT "Copying libonnxruntime.dylib alongside server executable"
+        "$<TARGET_FILE_DIR:adaptive-search-server>/${ORT_LIB_FILENAME}"
+    COMMENT "Copying ${ORT_LIB_FILENAME} alongside server executable"
 )
 
 # ── Benchmark: WAND Pruning vs Unpruned ────────────────────────────────────
@@ -153,12 +179,12 @@ add_executable(evaluator
 target_include_directories(evaluator PRIVATE ${ENGINE_INCLUDES})
 target_link_libraries(evaluator PRIVATE "${ORT_LIB}")
 
-# Copy libonnxruntime.dylib next to evaluator binary
+# Copy ONNX Runtime library next to evaluator binary
 add_custom_command(TARGET evaluator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${ORT_LIB}"
-        "$<TARGET_FILE_DIR:evaluator>/libonnxruntime.dylib"
-    COMMENT "Copying libonnxruntime.dylib alongside evaluator"
+        "$<TARGET_FILE_DIR:evaluator>/${ORT_LIB_FILENAME}"
+    COMMENT "Copying ${ORT_LIB_FILENAME} alongside evaluator"
 )
 
 # ── Test: RRF unit tests (no ORT — tests pure fusion logic) ───────────────
@@ -233,8 +259,8 @@ target_link_libraries(test_cross_encoder PRIVATE "${ORT_LIB}")
 add_custom_command(TARGET test_cross_encoder POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${ORT_LIB}"
-        "$<TARGET_FILE_DIR:test_cross_encoder>/libonnxruntime.dylib"
-    COMMENT "Copying libonnxruntime.dylib alongside test_cross_encoder"
+        "$<TARGET_FILE_DIR:test_cross_encoder>/${ORT_LIB_FILENAME}"
+    COMMENT "Copying ${ORT_LIB_FILENAME} alongside test_cross_encoder"
 )
 
 # ── Test: PrefixTrie Autocomplete ──────────────────────────────────────────

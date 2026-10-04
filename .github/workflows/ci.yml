@@ -7,58 +7,47 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build-and-test:
-    name: Build + Unit Tests (Ubuntu)
+  build-and-test-ubuntu:
+    name: Build + Test (Ubuntu x64)
     runs-on: ubuntu-latest
-
-    env:
-      # ONNX Runtime not available on CI — disable ORT-dependent targets.
-      # Core logic (BM25, WAND, RRF, stemmer, spell, concurrency) builds fine.
-      BUILD_DIR: build-ci
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y cmake g++ build-essential
+          sudo apt-get install -y cmake g++ build-essential curl tar
 
-      # ── Stub out ORT so core targets build without the dylib ──────────
-      - name: Create ORT stubs (CI-only)
+      - name: Download ONNX Runtime (Linux x64)
         run: |
-          ORT_DIR=third_party/onnxruntime-osx-arm64-1.28.0
-          mkdir -p "${ORT_DIR}/include" "${ORT_DIR}/lib"
-          # Minimal stub header so CMake finds the file
-          cat > "${ORT_DIR}/include/onnxruntime_cxx_api.h" << 'EOF'
-          // CI stub — real header ships with the ONNX Runtime SDK
-          #pragma once
-          EOF
-          # Stub shared library (empty .so — core targets don't use ORT at link time)
-          touch "${ORT_DIR}/lib/libonnxruntime.dylib"
+          ORT_VER="1.18.0"
+          mkdir -p third_party
+          curl -sSL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VER}/onnxruntime-linux-x64-${ORT_VER}.tgz" -o /tmp/ort.tgz
+          tar -xzf /tmp/ort.tgz -C third_party/
+          rm -f /tmp/ort.tgz
 
-      - name: Configure (no-ORT build for core tests)
+      - name: Configure CMake
         run: |
-          cmake -S . -B $BUILD_DIR \
+          cmake -S . -B build-ci \
             -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_SANITIZERS=OFF
 
-      - name: Build core targets
+      - name: Build all targets
         run: |
-          cmake --build $BUILD_DIR --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 test_snippet test_shards test_cross_encoder test_prefix_trie test_metadata adaptive-search-server benchmark_pruning --parallel 4
+          cmake --build build-ci --parallel 4
 
-      - name: Run CTest test suite (all unit tests)
+      - name: Run CTest test suite (all 11 unit tests)
         run: |
-          ctest --test-dir $BUILD_DIR --output-on-failure
+          ctest --test-dir build-ci --output-on-failure
 
       - name: Run pruning benchmark (smoke test)
         run: |
-          # Verify the binary runs cleanly with missing file error handling
-          $BUILD_DIR/benchmark_pruning /nonexistent || true
+          build-ci/benchmark_pruning /nonexistent || true
 
-  build-macos:
-    name: Build macOS (arm64)
+  build-and-test-macos:
+    name: Build + Test (macOS arm64)
     runs-on: macos-latest
 
     steps:
@@ -68,19 +57,23 @@ jobs:
       - name: Install CMake
         run: brew install cmake
 
-      - name: Create ORT stubs
+      - name: Download ONNX Runtime (macOS arm64)
         run: |
-          ORT_DIR=third_party/onnxruntime-osx-arm64-1.28.0
-          mkdir -p "${ORT_DIR}/include" "${ORT_DIR}/lib"
-          echo '#pragma once' > "${ORT_DIR}/include/onnxruntime_cxx_api.h"
-          touch "${ORT_DIR}/lib/libonnxruntime.dylib"
+          ORT_VER="1.18.0"
+          mkdir -p third_party
+          curl -sSL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VER}/onnxruntime-osx-arm64-${ORT_VER}.tgz" -o /tmp/ort.tgz
+          tar -xzf /tmp/ort.tgz -C third_party/
+          rm -f /tmp/ort.tgz
 
-      - name: Configure + Build
+      - name: Configure CMake
         run: |
           cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-macos --target test_rrf test_concurrency test_stemmer test_simd test_inverted_index test_sq8 test_snippet test_shards test_cross_encoder test_prefix_trie test_metadata adaptive-search-server --parallel 4
 
-      - name: Run CTest test suite (all unit tests)
+      - name: Build all targets
+        run: |
+          cmake --build build-macos --parallel 4
+
+      - name: Run CTest test suite (all 11 unit tests)
         run: |
           ctest --test-dir build-macos --output-on-failure
 
