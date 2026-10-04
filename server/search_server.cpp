@@ -1140,11 +1140,46 @@ std::string SearchServer::handleWebUI() {
 <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
 <div class="drawer-panel" id="drawerPanel">
   <div class="drawer-header">
-    <span class="drawer-title">Real-Time Document Ingestion</span>
+    <span class="drawer-title">Ingest Documents / PDFs</span>
     <button class="drawer-close" onclick="closeDrawer()">✕</button>
   </div>
-  <p style="font-size:13px; color:var(--text-muted);">Insert new text or paste extracted PDF passages. The document is indexed live into the inverted index, prefix trie, and WAL.</p>
-  <form id="ingestDrawerForm" style="display:flex; flex-direction:column; gap:14px;">
+  
+  <!-- Ingestion Mode Tabs -->
+  <div style="display:flex; gap:8px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+    <button type="button" class="filter-chip active" id="tabPdfMode" onclick="switchIngestMode('pdf')">📄 Upload PDF</button>
+    <button type="button" class="filter-chip" id="tabTextMode" onclick="switchIngestMode('text')">✍️ Text Passage</button>
+  </div>
+
+  <!-- Mode 1: PDF Drag & Drop Upload -->
+  <div id="pdfUploadSection" style="display:flex; flex-direction:column; gap:16px;">
+    <div style="font-size:13px; color:var(--text-muted);">Upload any PDF document. Pages will be parsed and indexed as individual searchable passages.</div>
+    
+    <div id="pdfDropzone" style="border:2px dashed var(--border-light); border-radius:12px; padding:32px 16px; text-align:center; cursor:pointer; background:var(--bg); transition:all 0.2s;" onclick="document.getElementById('pdfFileInput').click()">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="var(--accent)" style="margin:0 auto 10px auto; display:block;"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+      <div style="font-family:'Google Sans', sans-serif; font-size:15px; font-weight:500;">Drop PDF file here</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">or click to browse from your computer</div>
+      <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" onchange="handlePdfSelected(event)">
+    </div>
+
+    <div class="ingest-field">
+      <label>Category Tag for PDF</label>
+      <input type="text" id="pdfCategory" class="g-input" value="Research" placeholder="e.g. Research, AI, Resume">
+    </div>
+
+    <!-- Progress UI -->
+    <div id="pdfProgressBox" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:14px;">
+      <div style="display:flex; justify-content:space-between; font-size:12px; font-family:'Roboto Mono', monospace; margin-bottom:8px;">
+        <span id="pdfStatusText">Reading PDF...</span>
+        <span id="pdfProgressPercent">0%</span>
+      </div>
+      <div style="height:6px; background:var(--surface); border-radius:3px; overflow:hidden;">
+        <div id="pdfProgressBar" style="height:100%; width:0%; background:var(--accent); transition:width 0.2s;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mode 2: Manual Text Ingestion -->
+  <form id="ingestDrawerForm" style="display:none; flex-direction:column; gap:14px;">
     <div class="ingest-field">
       <label>Document ID</label>
       <input type="number" id="drawerDocId" class="g-input" value="1001" required>
@@ -1155,13 +1190,19 @@ std::string SearchServer::handleWebUI() {
     </div>
     <div class="ingest-field">
       <label>Document Content / Passage</label>
-      <textarea id="drawerDocContent" class="g-input g-textarea" placeholder="Paste full document content, abstract, or extracted PDF passage..." required></textarea>
+      <textarea id="drawerDocContent" class="g-input g-textarea" placeholder="Paste full document content, abstract, or extracted text..." required></textarea>
     </div>
     <button type="submit" class="primary-btn">Index into Corpus</button>
   </form>
 </div>
 
+<!-- Include Mozilla PDF.js library for client-side PDF parsing -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
 let currentMode = 'hybrid';
 let activeCategory = '';
 let activeYear = '';
@@ -1179,6 +1220,127 @@ const homeSuggestMenu = document.getElementById('homeSuggestMenu');
 const resSuggestMenu = document.getElementById('resSuggestMenu');
 const resList = document.getElementById('resList');
 const resStats = document.getElementById('resStats');
+
+// Ingestion mode switcher
+function switchIngestMode(mode) {
+  const tabPdf = document.getElementById('tabPdfMode');
+  const tabText = document.getElementById('tabTextMode');
+  const secPdf = document.getElementById('pdfUploadSection');
+  const formText = document.getElementById('ingestDrawerForm');
+
+  if (mode === 'pdf') {
+    tabPdf.classList.add('active');
+    tabText.classList.remove('active');
+    secPdf.style.display = 'flex';
+    formText.style.display = 'none';
+  } else {
+    tabText.classList.add('active');
+    tabPdf.classList.remove('active');
+    formText.style.display = 'flex';
+    secPdf.style.display = 'none';
+  }
+}
+
+// Drag and drop events on PDF dropzone
+const dropzone = document.getElementById('pdfDropzone');
+['dragenter', 'dragover'].forEach(eventName => {
+  dropzone.addEventListener(eventName, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropzone.style.borderColor = 'var(--accent)';
+    dropzone.style.background = 'rgba(138, 180, 248, 0.08)';
+  }, false);
+});
+['dragleave', 'drop'].forEach(eventName => {
+  dropzone.addEventListener(eventName, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropzone.style.borderColor = 'var(--border-light)';
+    dropzone.style.background = 'var(--bg)';
+  }, false);
+});
+dropzone.addEventListener('drop', (e) => {
+  const dt = e.dataTransfer;
+  const files = dt.files;
+  if (files.length > 0 && files[0].type === 'application/pdf') {
+    processPdfFile(files[0]);
+  } else {
+    alert('Please drop a valid .pdf file');
+  }
+});
+
+function handlePdfSelected(e) {
+  const file = e.target.files[0];
+  if (file) processPdfFile(file);
+}
+
+// Parse and ingest PDF
+async function processPdfFile(file) {
+  const progressBox = document.getElementById('pdfProgressBox');
+  const statusText = document.getElementById('pdfStatusText');
+  const percentText = document.getElementById('pdfProgressPercent');
+  const progressBar = document.getElementById('pdfProgressBar');
+  const category = document.getElementById('pdfCategory').value.trim() || 'PDF';
+
+  progressBox.style.display = 'block';
+  statusText.innerText = `Loading ${file.name}...`;
+  progressBar.style.width = '10%';
+  percentText.innerText = '10%';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    const numPages = pdf.numPages;
+
+    let baseDocId = Date.now() % 100000;
+    let indexedPages = 0;
+
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      statusText.innerText = `Extracting Page ${pageNum} of ${numPages}...`;
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map(item => item.str).join(' ').replace(/\s+/g, ' ').trim();
+
+      if (pageText.length > 20) {
+        const docId = baseDocId + pageNum;
+        const docContent = `[${file.name} - Page ${pageNum}] ${pageText}`;
+
+        await fetch('/document', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({docId, content: docContent})
+        });
+        indexedPages++;
+      }
+
+      const pct = Math.round((pageNum / numPages) * 100);
+      progressBar.style.width = `${pct}%`;
+      percentText.innerText = `${pct}%`;
+    }
+
+    statusText.innerText = `✓ Successfully indexed ${indexedPages} pages!`;
+    progressBar.style.background = 'var(--accent-green)';
+    loadStatus();
+
+    setTimeout(() => {
+      closeDrawer();
+      progressBox.style.display = 'none';
+      progressBar.style.width = '0%';
+      progressBar.style.background = 'var(--accent)';
+      
+      // Auto search for the PDF name
+      const searchTerms = file.name.replace('.pdf', '').replace(/[^a-zA-Z0-9 ]/g, ' ');
+      homeInput.value = searchTerms;
+      resInput.value = searchTerms;
+      showResultsView();
+      executeSearch();
+    }, 1200);
+
+  } catch (err) {
+    statusText.innerText = 'Error parsing PDF document';
+    progressBar.style.background = 'var(--accent-red)';
+  }
+}
 
 // Focus shortcut '/'
 window.addEventListener('keydown', (e) => {
