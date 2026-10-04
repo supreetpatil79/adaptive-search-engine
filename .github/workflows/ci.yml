@@ -40,6 +40,7 @@ jobs:
 
       - name: Run CTest test suite (all 11 unit tests)
         run: |
+          export LD_LIBRARY_PATH="$(pwd)/build-ci:$(pwd)/third_party/onnxruntime-linux-x64-1.18.0/lib:$LD_LIBRARY_PATH"
           ctest --test-dir build-ci --output-on-failure
 
       - name: Run pruning benchmark (smoke test)
@@ -75,6 +76,7 @@ jobs:
 
       - name: Run CTest test suite (all 11 unit tests)
         run: |
+          export DYLD_LIBRARY_PATH="$(pwd)/build-macos:$(pwd)/third_party/onnxruntime-osx-arm64-1.18.0/lib:$DYLD_LIBRARY_PATH"
           ctest --test-dir build-macos --output-on-failure
 
 

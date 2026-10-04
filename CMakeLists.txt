@@ -22,6 +22,10 @@ if(ENABLE_SANITIZERS AND NOT MSVC)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
+# ── RPATH for dynamic library loading ($ORIGIN for Linux, @loader_path for macOS)
+set(CMAKE_BUILD_RPATH "$ORIGIN" "@loader_path" "${CMAKE_CURRENT_BINARY_DIR}")
+set(CMAKE_INSTALL_RPATH "$ORIGIN" "@loader_path")
+
 # ── ONNX Runtime ──────────────────────────────────────────────────────────
 if(NOT DEFINED ORT_ROOT)
     file(GLOB ORT_CANDIDATES
@@ -48,7 +52,16 @@ if(NOT DEFINED ORT_LIB)
     if(APPLE)
         set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.dylib")
     else()
-        set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.so")
+        if(EXISTS "${ORT_ROOT}/lib/libonnxruntime.so")
+            set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.so")
+        else()
+            file(GLOB ORT_SO_FILES "${ORT_ROOT}/lib/libonnxruntime.so*")
+            if(ORT_SO_FILES)
+                list(GET ORT_SO_FILES 0 ORT_LIB)
+            else()
+                set(ORT_LIB "${ORT_ROOT}/lib/libonnxruntime.so")
+            endif()
+        endif()
     endif()
 endif()
 
