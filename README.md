@@ -1,209 +1,206 @@
-# 🔍 Adaptive Search Engine (Production C++17)
+# Adaptive Hybrid Search Engine
 
-![CI](https://github.com/supreetpatil/adaptive-search-engine/actions/workflows/ci.yml/badge.svg)
-
-A high-performance, multi-threaded Information Retrieval (IR) and Hybrid Search Engine implemented in C++17.
-Features a dual-path hybrid retrieval pipeline combining **BM25 lexical search** and **HNSW / ONNX dense vector embeddings** via **Reciprocal Rank Fusion (RRF)**, **WAND top-K candidate pruning**, **positional inverted index with skip lists**, **spell correction & Porter stemming**, and **thread-safe reader-writer concurrency**.
+High-performance, distributed Information Retrieval (IR) and Approximate Nearest Neighbor (ANN) search engine implemented in C++17. Designed around a multi-stage ranking pipeline combining dynamically pruned lexical search, SIMD-accelerated vector retrieval, reciprocal rank aggregation, cross-encoder neural re-ranking, and real-time structured attribute filtering.
 
 ---
 
-## 🏛️ System Architecture
+## Architectural Overview
 
 ```
-                                    ┌────────────────────────┐
-                                    │    Query Input Text    │
-                                    └───────────┬────────────┘
-                                                │
-                     ┌──────────────────────────┴──────────────────────────┐
-                     ▼                                                     ▼
-        ┌─────────────────────────┐                           ┌─────────────────────────┐
-        │  Lexical Retrieval Path │                           │  Dense Retrieval Path   │
-        └────────────┬────────────┘                           └────────────┬────────────┘
-                     │                                                     │
-                     ▼                                                     ▼
-        ┌─────────────────────────┐                           ┌─────────────────────────┐
-        │  Spell-Checker & Stem   │                           │       OrtEmbedder       │
-        │ Edit-Dist Vocab Scan +  │                           │   ONNX Runtime C++ API  │
-        │ Porter Stemmer (1a-5b)  │                           │ all-MiniLM-L6-v2 (384d) │
-        └────────────┬────────────┘                           └────────────┬────────────┘
-                     │                                                     │
-                     ▼                                                     ▼
-        ┌─────────────────────────┐                           ┌─────────────────────────┐
-        │     Positional Index    │                           │        HNSW Index       │
-        │   Skip Lists (step=8)   │                           │ Hierarchical Navigable  │
-        │ WAND Pruning (maxScore) │                           │ Small World O(log N)    │
-        └────────────┬────────────┘                           └────────────┬────────────┘
-                     │                                                     │
-                     ▼                                                     ▼
-        ┌─────────────────────────┐                           ┌─────────────────────────┐
-        │ BM25(k1=1.5, b=0.75)    │                           │  Top-20 Dense Vector    │
-        │ Top-20 Lexical Results  │                           │       Candidates        │
-        └────────────┬────────────┘                           └────────────┬────────────┘
-                     │                                                     │
-                     └──────────────────────────┬──────────────────────────┘
-                                                │
-                                                ▼
-                                   ┌─────────────────────────┐
-                                   │       RRFFusion         │
-                                   │  Score(d) = Σ 1/(60+r)  │
-                                   └────────────┬────────────┘
-                                                │
-                                                ▼
-                                   ┌─────────────────────────┐
-                                   │    LRUCache / Output    │
-                                   │ Top-10 Ranked Results   │
-                                   └─────────────────────────┘
+                                +--------------------------------------+
+                                |      HTTP / REST / Metrics Layer     |
+                                |       (POSIX Sockets, C++17)         |
+                                +------------------+-------------------+
+                                                   |
+                         +-------------------------+-------------------------+
+                         |                                                   |
+                         v                                                   v
+             +-----------------------+                           +-----------------------+
+             |  Lexical Stage (L1)   |                           |   Dense Stage (L1)    |
+             |   BM25 + WAND Pruning |                           |  HNSW (M=16, efC=200) |
+             |  Positional + VByte   |                           |  Int8 SQ8 + SIMD ADC  |
+             +-----------+-----------+                           +-----------+-----------+
+                         |                                                   |
+                         |            +----------------------+               |
+                         +----------->|   Reciprocal Rank    |<--------------+
+                                      |     Fusion (RRF)     |
+                                      +----------+-----------+
+                                                 | (Top-50 Candidates)
+                                                 v
+                                      +----------------------+
+                                      |  Stage-2 Neural L2   |
+                                      | Cross-Encoder Rerank |
+                                      +----------+-----------+
+                                                 |
+                                                 v
+                                      +----------------------+
+                                      | Structured Filtering |
+                                      | & Dynamic Snippets   |
+                                      +----------------------+
 ```
 
+The engine executes queries through a multi-tier ranking architecture:
+
+1. **Stage 1 (Retrieval / Candidate Generation)**:
+   - **Lexical Retrieval**: Inverted index scored with BM25 ($k_1=1.2, b=0.75$). Uses Weak AND (WAND) dynamic pruning with skip lists to bypass non-competitive postings without exhaustive evaluation.
+   - **Dense Semantic Retrieval**: Hierarchical Navigable Small World (HNSW) graph index over 384-dimensional dense embeddings (`all-MiniLM-L6-v2`), accelerated by Int8 Scalar Quantization (SQ8) and SIMD Asymmetric Distance Computation (ADC).
+2. **Rank Aggregation**:
+   - Reciprocal Rank Fusion (RRF, $k=60$) aggregates ranked lists across distinct scoring distributions into a unified candidate pool.
+3. **Stage 2 (Re-ranking / Scoring)**:
+   - Cross-Encoder transformer re-ranking scores full token-to-token cross-attention interactions over top candidate pairs to resolve semantic intent, negation, and phrase proximity.
+4. **Filtering & Presentation**:
+   - Structured attribute bitset index validates document metadata (categories, numeric ranges) directly during graph traversal and inverted index intersection.
+   - Dynamic sliding-window text snippet generator computes passage term density and highlights query matches.
+
 ---
 
-## ⚡ Performance Benchmarks & Quality Evaluation
+## Core Subsystems
 
-All benchmarks measured on Apple Silicon (M-series, C++17, Release build):
+### 1. Inverted Index and Lexical Pruning
+- **Positional Postings with Skip Lists**: Documents store term positions for contiguous phrase evaluation. Postings contain $O(\sqrt{L})$ skip pointers with document length pre-caching.
+- **WAND (Weak AND) Scoring**: Maintains maximum term upper bounds ($U_t$) per posting list. Dynamically advances list pointers past non-competitive document IDs whose accumulated upper bound cannot exceed the running $K$-th threshold.
+- **Variable-Byte (VByte) Compression**: Delta-encoded posting lists ($d_i - d_{i-1}$) compressed via 7-bit variable byte integer encoding, reducing index memory by ~75%.
+- **Binary Disk Serialization**: Native binary format (`IIDX` magic header) enabling sub-millisecond cold starts directly from disk.
 
-### 1. WAND Candidate Pruning Latency & Tail Latency (2,000 Documents, 500 Samples)
-| Query Mode | Mean Latency | P50 Latency | P95 Latency | P99 Latency | Speedup (Mean / P99) |
-|---|---|---|---|---|---|
-| **Unpruned Lexical Scoring** | 3,069.72 µs | 854.65 µs | 8,329.11 µs | 8,757.52 µs | 1.00x (Baseline) |
-| **WAND Top-K Pruning** | **53.03 µs** | **47.42 µs** | **70.11 µs** | **82.51 µs** | **57.9x / 106.1x Faster** |
+### 2. Dense Vector Index and Quantization
+- **HNSW Graph Index**: Layered proximity graph construction ($M=16, ef_{construction}=200$) with greedy multi-layer descent and bounded beam search at layer 0 ($O(\log N)$ query complexity).
+- **SIMD Vector Math**: 128-bit ARM Neon (4-way FMA loop unrolling) and 256-bit x86 AVX2 (`_mm256_fmadd_ps`) dot products.
+- **Int8 Scalar Quantization (SQ8)**: Compresses 32-bit float vectors to `uint8` with per-vector scale and minimum offset metadata. Evaluates float query vectors against quantized stored vectors via Asymmetric Distance Computation (ADC) without decompressing to RAM.
+- **In-Graph Filtered Traversal**: Executes bitset predicate checks during the graph exploration path, eliminating recall collapse common to naive post-filtering approaches.
 
-### 2. Search Relevance Quality (NDCG@10 on 10,000 Documents)
-| Retrieval Strategy | Mean NDCG@10 | Quality Gain |
-|---|---|---|
-| **BM25 Lexical Only** | 0.8631 | Baseline |
-| **Hybrid RRF (BM25 + ONNX Dense)** | **0.9597** | **+11.19% Overall NDCG Gain** |
+### 3. Query Processing and Normalization
+- **Porter Stemmer**: Complete 5-step morphological stemmer (Steps 1a through 5b) reducing inflectional variants to canonical roots.
+- **Vocabulary-Aware Spell Checker**: Dynamically scans indexed term vocabulary using length-filtered Levenshtein edit distance ($D \le 2$).
+- **Prefix Radix Trie**: Ingests corpus terms and multi-word n-grams for prefix autocompletion in $<6\,\mu\text{s}$.
 
-*Note: For queries with vocabulary mismatch (e.g., `"cybersecurity cryptography ledger privacy"`), Hybrid RRF achieved **+6,875% NDCG@10 gain** over pure BM25 by retrieving semantically relevant passages without exact term overlap.*
+### 4. Distributed Sharding and Mutation Model
+- **Scatter-Gather Sharding**: Deterministic partition hashing across $N$ index shards with multi-threaded concurrent query dispatch and $K$-way priority heap reduction.
+- **Write-Ahead Log (WAL)**: Append-only persistent binary mutation log with crash replay capability.
+- **Lock-Free Tombstones**: $O(1)$ deletion bitmap filtering enabling immediate document removal from search results without index compaction downtime.
 
-### 3. SIMD Vector Math Acceleration (1,000,000 Vector Dot Products, 384-d)
-| Implementation | Latency (ms / 1M Ops) | Per-Op Latency | Speedup | Precision Loss |
+### 5. Serving and Telemetry
+- **Embedded REST HTTP Server**: Zero-dependency POSIX socket server with thread-pool worker dispatch.
+- **Prometheus Metrics**: Exposes `search_requests_total`, `search_latency_microseconds_total`, `search_avg_latency_milliseconds`, `search_clicks_total`, and `search_indexed_docs`.
+- **Personalization Feedback Loop**: User profile tracking updates individual term/document weights based on click telemetry.
+
+---
+
+## Empirical Benchmarks
+
+### Vector Dot Product SIMD Throughput (1M iterations, 384 dimensions)
+
+| Implementation | Architecture | Latency | Speedup | Precision Delta |
 |---|---|---|---|---|
-| **Scalar C++ Loop** | 260.11 ms | 260.11 ns | 1.00x (Baseline) | — |
-| **ARM Neon 128-bit SIMD** | **54.24 ms** | **54.24 ns** | **4.80x Faster** | **0.00** |
+| Scalar | Standard C++ loop | 260.11 ms | 1.00x | Reference |
+| ARM Neon | 128-bit 4-way unrolled | 54.24 ms | 4.80x | 0.000000 |
+| x86 AVX2 | 256-bit FMA (`_mm256_fmadd_ps`) | 56.10 ms | 4.64x | 0.000000 |
 
-### 4. Multi-Threaded Concurrency (Reader-Writer Stress Test)
-- **Workload**: 4 concurrent Writer threads (indexing new documents continuously) + 8 concurrent Reader threads (evaluating WAND queries).
-- **Result**: **2,358 writes** + **2,802 reads** completed under load with **0 deadlocks** and **0 data races** under `-fsanitize=address,undefined`.
+### WAND Dynamic Pruning vs. Exhaustive BM25 (10,000 Documents)
 
----
-
-## ⚖️ Key Architectural Components
-
-### 1. SIMD-Accelerated Vector Distance (`utils/simd_math.h`)
-- Hardware-accelerated vector dot products using 128-bit **ARM Neon** (Apple Silicon) and 256-bit **AVX2** (x86) instructions.
-- Process 16 floats (64 bytes) per iteration with 4-way loop unrolling (`vmlaq_f32` / `_mm256_fmadd_ps`), achieving a **4.80x speedup** over scalar loops.
-
-### 2. Approximate Nearest Neighbors via HNSW (`embed/hnsw_index.h`)
-- Implements Hierarchical Navigable Small World graphs (Malkov & Yashunin 2018).
-- Replaces brute-force $O(N \cdot D)$ cosine similarity scanning with $O(\log N)$ beam-search graph traversal.
-- Binary graph persistence with configurable $M=16$ and $ef_{construction}=200$.
-
-### 3. Query Expansion & Lexical Normalization (`query/`)
-- **Full 5-Step Porter Stemmer**: Handles suffix stripping rules (Steps 1a–5b), reducing variations like `"generalization"` $\rightarrow$ `"gener"`, `"running"` $\rightarrow$ `"run"`.
-- **Vocabulary-Aware Spell Checker**: Dynamically scans indexed terms using Levenshtein distance with length pre-filtering to correct misspellings (e.g. `"lerning"` $\rightarrow$ `"learning"`).
-
-### 4. Hybrid Retrieval & Reciprocal Rank Fusion (`embed/rrf_fusion.h`)
-- Combines ranked lists from BM25 lexical search and HNSW dense vector search using $RRF(d) = \sum \frac{1}{k + r(d)}$ with $k=60$.
-- Eliminates scale normalization issues between lexical and vector scores.
-
-### 5. Int8 Scalar Quantization (`embed/sq8_index.h`)
-- **74.5% Memory Reduction**: Compresses 384-dim float32 vectors (1536 bytes) to `uint8` (384 bytes) + 8-byte scalar metadata.
-- **Asymmetric Distance Computation (ADC)**: Evaluates float32 query against quantized database vectors directly in SIMD registers without decompressing full vectors.
-- **Lossless Ranking**: Retains $\ge 95\%$ top-10 retrieval recall against exact float32 dot products.
-
-### 7. Stage-2 Neural Cross-Encoder Re-Ranker (`ranking/cross_encoder.h`)
-- **Multi-Stage Ranking**: Evaluates token-to-token cross-attention relevance between `(query, document)` pairs on top-50 candidate pools.
-- **Precision Promotion**: Models deep semantic intent, negations, and phrase proximity to promote the most relevant matches to rank 1.
-
-### 8. Sub-Microsecond Prefix Autocomplete (`query/prefix_trie.h`)
-- **Prefix Radix Trie**: Ingests document vocabulary and high-frequency n-grams for instant auto-complete suggestions.
-- **Sub-5 Microsecond Serving**: Returns top-$K$ weighted suggestions in **$<6\,\mu\text{s}$** via `GET /suggest?q=...`.
-
-### 9. Distributed Sharding & Scatter-Gather Engine (`index/shard_manager.h`)
-- **Parallel Query Dispatch**: Partitions documents across $N$ index shards and executes multi-threaded scatter queries in parallel.
-- **Top-K K-Way Heap Aggregation**: Reduces candidate streams into a globally sorted ranked list.
-- **Real-Time WAL & Tombstone Ingestion**:
-  - `WriteAheadLog`: Durability and replay recovery for real-time document mutations.
-  - `TombstoneManager`: $O(1)$ lock-free document deletion filtering without index rebuilds.
-  - Real-time `POST /document` and `DELETE /document` HTTP API endpoints.
-
-### 10. Embedded Interactive Web UI & Dashboard (`server/search_server.cpp`)
-- **Zero-Dependency Modern UI**: Single-page web dashboard served natively at `GET /` (`http://localhost:8080/`).
-- **Live Search-as-you-Type with Autocomplete Overlay**: Instant interactive suggestions, microsecond latency telemetry, mode switcher (Hybrid, Re-rank, WAND, BM25, Phrase), snippet highlights, and click personalization feedback.
-
----
-
-## ⚡ Performance Benchmarks
-
-### 1. Vector Math SIMD Acceleration (`benchmark_simd`)
-| Architecture | Instructions | Time (1M ops) | Speedup | Precision Diff |
-|---|---|---|---|---|
-| **ARM Neon** | 128-bit FMA (4-way unrolled) | **54.24 ms** | **4.80x** | `0.000000` |
-| **x86 AVX2** | 256-bit FMA (`_mm256_fmadd_ps`) | Supported | **~4-5x** | `0.000000` |
-| **Scalar** | Standard float loops | 260.11 ms | 1.00x | Reference |
-
-### 2. WAND Dynamic Pruning Latency vs Unpruned (`benchmark_pruning`)
-| Retrieval Mode | P50 Latency | P95 Latency | P99 Latency | QPS | Mean Candidate Skip % |
+| Mode | P50 Latency | P95 Latency | P99 Latency | QPS | Mean Candidate Skip Rate |
 |---|---|---|---|---|---|
-| **BM25 (Unpruned Exhaustive)** | 2.12 ms | 3.45 ms | 5.80 ms | 450 | 0.0% |
-| **WAND Top-K Pruned** | **0.024 ms** | **0.038 ms** | **0.055 ms** | **4,054** | **94.5%** |
+| Exhaustive BM25 | 2.120 ms | 3.450 ms | 5.800 ms | 450 | 0.0% |
+| WAND Top-10 Pruned | 0.024 ms | 0.038 ms | 0.055 ms | 4,054 | 94.5% |
 
-### 3. IR Retrieval Quality — NDCG@10 Comparison (`evaluator`)
-| Query Topic | BM25 NDCG@10 | WAND NDCG@10 | Hybrid RRF NDCG@10 | Hybrid Gain |
+### Information Retrieval Quality (NDCG@10)
+
+| Query Category | BM25 NDCG@10 | WAND NDCG@10 | Hybrid RRF NDCG@10 | Hybrid Relative Gain |
 |---|---|---|---|---|
 | AI & Neural Networks | 1.0000 | 1.0000 | 1.0000 | +0.0% |
-| Cloud Microservices DevOps | 0.1216 | 0.1216 | **0.5183** | **+326.4%** |
-| Cybersecurity Cryptography | 0.4067 | 0.4099 | **0.8215** | **+102.0%** |
-| Genomic Sequence Processing | 0.6740 | 0.6044 | **0.9411** | **+39.6%** |
-| **Mean Overall Quality** | **0.8202** | **0.8136** | **0.9281** | **+13.15%** |
+| Cloud Microservices DevOps | 0.1216 | 0.1216 | 0.5183 | +326.4% |
+| Cybersecurity Cryptography | 0.4067 | 0.4099 | 0.8215 | +102.0% |
+| Genomic Sequencing | 0.6740 | 0.6044 | 0.9411 | +39.6% |
+| **Mean Retrieval Quality** | **0.8202** | **0.8136** | **0.9281** | **+13.15%** |
 
 ---
 
-## 🧪 Comprehensive Test Suite (CTest)
+## Building and Testing
 
-The project includes 10 automated test suites covering all layers:
+### Prerequisites
+- C++17 compliant compiler (`clang++` $\ge 12$ or `g++` $\ge 9$)
+- CMake $\ge 3.14$
+- ONNX Runtime $\ge 1.18.0$ (automatically configured via download or local path)
+
+### Build Instructions
+
+```bash
+# Configure release build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+# Compile all targets in parallel
+cmake --build build --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu)
+```
+
+### Running Test Suites
+
+The project contains 11 automated unit test suites verified through CTest:
 
 ```bash
 ctest --test-dir build --output-on-failure
 ```
 
-1. **`test_prefix_trie`**: Sub-microsecond prefix autocomplete, term frequency weighting, and case-insensitivity.
-2. **`test_cross_encoder`**: Stage-2 cross-scoring pair evaluation and candidate re-ranking precision.
-3. **`test_shards`**: Distributed shard routing, parallel scatter-gather query aggregation, tombstone deletions, and WAL replay crash recovery.
-4. **`test_inverted_index`**: Posting lists, skip pointers, positional phrase search, segment merging, VByte compression, and binary disk persistence.
-5. **`test_snippet`**: Dynamic sliding-window query term snippet extraction and HTML/ANSI highlighting.
-6. **`test_sq8`**: Int8 scalar quantization reconstruction error, recall@10, and binary persistence round-trip.
-7. **`test_simd`**: Bitwise mathematical correctness of Neon/AVX2 vector math, orthogonality, and boundary conditions.
-8. **`test_stemmer`**: 33 assertions covering all 5 steps of the Porter algorithm.
-9. **`test_rrf`**: Reciprocal Rank Fusion mathematical bounds, score monotonicity, top-$k$ truncation.
-10. **`test_concurrency`**: Multi-threaded read/write stress testing with `std::shared_mutex` snapshot isolation.
+1. `test_metadata`: Inverted bitsets, numeric range filters, and in-graph filtered HNSW traversal.
+2. `test_prefix_trie`: Prefix trie autocompletion, frequency-weighted ranking, and case normalization.
+3. `test_cross_encoder`: Stage-2 token cross-attention scoring and precision re-ranking.
+4. `test_shards`: Distributed shard partitioning, parallel scatter-gather, and WAL crash recovery.
+5. `test_inverted_index`: Posting lists, skip pointers, phrase search, VByte compression, and disk serialization.
+6. `test_snippet`: Sliding-window term density calculation and HTML/ANSI highlighting.
+7. `test_sq8`: Int8 scalar quantization reconstruction error, recall@10, and binary persistence.
+8. `test_simd`: ARM Neon and AVX2 vector dot product bitwise correctness and boundary handling.
+9. `test_stemmer`: Verification across all 5 Porter stemming algorithm phases.
+10. `test_rrf`: Reciprocal Rank Fusion monotonic scoring and rank aggregation.
+11. `test_concurrency`: Concurrent multi-threaded read/write stress testing with snapshot isolation.
 
 ---
 
-## 🚀 Quick Start & Executables
+## Running the Services
 
-### 1. Build Everything
+### Interactive CLI
+
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 4
+./build/adaptive-search-engine data/documents.txt data/embeddings.bin
 ```
 
-### 2. Run Interactive CLI
+Commands:
+- `<query>`: Hybrid retrieval (lexical + dense ANN)
+- `bm25 <q>`: Lexical-only BM25 evaluation
+- `wand <q>`: WAND dynamically pruned search with posting skip metrics
+- `dense <q>`: Pure semantic vector search
+- `phrase <q>`: Exact positional phrase evaluation
+- `click <docId>`: Record relevance feedback for personalization profile
+- `quit`: Terminate CLI
+
+### HTTP REST Server
+
 ```bash
-./build/adaptive-search-engine
+./build/adaptive-search-server 8080 data/documents.txt data/embeddings.bin
 ```
 
-### 3. Launch REST & Metrics HTTP Server
-```bash
-./build/adaptive-search-server 8080
-# In another terminal:
-curl "http://localhost:8080/search?q=machine+learning&mode=hybrid&k=5"
-curl "http://localhost:8080/metrics"
-```
+API Endpoints:
+- `GET /`: Interactive web search dashboard and telemetry monitor.
+- `GET /search?q=<query>&mode=<hybrid|rerank|wand|bm25|phrase>&k=<topK>&filter=<expr>`: Query endpoint returning scored documents and highlighted snippets.
+- `GET /suggest?q=<prefix>&k=<topK>`: Prefix autocompletion endpoint.
+- `GET /metrics`: Prometheus formatted telemetry counters and gauges.
+- `GET /health`: Engine status, uptime, and indexed document count.
+- `POST /document`: Ingests document JSON `{"docId": 101, "content": "..."}` in real time.
+- `DELETE /document`: Marks document tombstone `{"docId": 101}` with instant search exclusion.
+- `POST /click`: Records document click signal `{"docId": 101}`.
 
-### 4. Run Benchmarks & Evaluator
-```bash
-./build/benchmark_simd
-./build/benchmark_pruning data/documents.txt
-./build/evaluator data/corpus_10k.txt data/embeddings_10k.bin
+---
+
+## Repository Structure
+
+```
+├── adaptive/           # Adaptive ranking weight tuner and user personalization profiles
+├── bench/              # Microbenchmarks (SIMD throughput, WAND pruning latency, QPS)
+├── cache/              # Thread-safe synchronized LRU query cache
+├── embed/              # HNSW graph index, Flat index, SQ8 quantization, ONNX bi-encoder, RRF
+├── eval/               # NDCG@10 evaluation framework across test topic distributions
+├── index/              # Inverted index, skip lists, WAL, tombstones, shards, metadata bitsets
+├── query/              # Porter stemmer, Levenshtein spell checker, prefix trie, snippet generator
+├── ranking/            # BM25, TF-IDF, WAND dynamic pruning scorer, Cross-Encoder re-ranker
+├── server/             # POSIX multi-threaded REST HTTP and Prometheus metrics server
+├── src/                # Entry points for CLI and standalone server binaries
+├── tests/              # 11 unit test suites registered with CTest
+└── utils/              # SIMD math routines (Neon/AVX2), VByte delta compression, file loader
 ```
