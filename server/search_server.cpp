@@ -290,240 +290,998 @@ std::string SearchServer::handleWebUI() {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Adaptive Search Engine — Neural Hybrid & Stage-2 Re-ranker</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<title>Adaptive Search Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg-primary: #0a0e17;
-    --bg-secondary: #131b2e;
-    --bg-card: #1c2742;
-    --border: #2a3b63;
-    --text-main: #f1f5f9;
-    --text-muted: #94a3b8;
-    --accent: #3b82f6;
-    --accent-hover: #60a5fa;
-    --highlight: #fde047;
-    --badge-bg: #1e3a8a;
-    --badge-text: #93c5fd;
-    --success: #10b981;
+    --g-bg: #202124;
+    --g-surface: #303134;
+    --g-surface-hover: #3c4043;
+    --g-border: #3c4043;
+    --g-border-subtle: #5f6368;
+    --g-text: #e8eaed;
+    --g-text-muted: #9aa0a6;
+    --g-text-snippet: #bdc1c6;
+    --g-link: #8ab4f8;
+    --g-link-visited: #c58af9;
+    --g-accent: #8ab4f8;
+    --g-accent-green: #81c995;
+    --g-accent-yellow: #fdd663;
+    --g-accent-red: #f28b82;
+    --g-badge-bg: #303134;
+    --font-main: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Roboto', -apple-system, sans-serif;
+    --font-mono: 'Roboto Mono', 'SF Mono', Consolas, monospace;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, sans-serif; }
-  body { background: var(--bg-primary); color: var(--text-main); min-height: 100vh; display: flex; flex-direction: column; }
-  header { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-  .logo { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
-  .logo span { background: linear-gradient(135deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  .status-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; padding: 0.35rem 0.85rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 999px; color: var(--success); font-family: 'JetBrains Mono', monospace; }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: var(--g-bg);
+    color: var(--g-text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
   
-  main { max-width: 900px; width: 100%; margin: 0 auto; padding: 2.5rem 1.5rem; flex: 1; }
-  
-  .search-container { position: relative; margin-bottom: 1.5rem; }
-  .search-input { width: 100%; padding: 1.1rem 1.4rem; font-size: 1.1rem; background: var(--bg-secondary); border: 2px solid var(--border); border-radius: 12px; color: #fff; outline: none; transition: all 0.2s ease; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-  .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
-  
-  .suggest-box { position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-top: none; border-radius: 0 0 12px 12px; z-index: 100; box-shadow: 0 8px 30px rgba(0,0,0,0.5); overflow: hidden; display: none; }
-  .suggest-item { padding: 0.75rem 1.4rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; color: #cbd5e1; border-bottom: 1px solid rgba(255,255,255,0.05); }
-  .suggest-item:hover, .suggest-item.selected { background: rgba(59, 130, 246, 0.2); color: #fff; }
-  .suggest-item:last-child { border-bottom: none; }
-  .suggest-freq { font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+  /* Top Bar */
+  header.g-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--g-border);
+    position: sticky;
+    top: 0;
+    background-color: var(--g-bg);
+    z-index: 100;
+  }
+  .g-header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 1;
+    max-width: 780px;
+  }
+  .g-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-main);
+    font-size: 20px;
+    font-weight: 500;
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .g-logo .logo-blue { color: #8ab4f8; }
+  .g-logo .logo-red { color: #f28b82; }
+  .g-logo .logo-yellow { color: #fdd663; }
+  .g-logo .logo-green { color: #81c995; }
+  .g-logo .logo-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 6px;
+    background: #3c4043;
+    border-radius: 4px;
+    color: #9aa0a6;
+    margin-left: 4px;
+    font-family: var(--font-mono);
+  }
 
-  .mode-selector { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 2rem; }
-  .mode-pill { padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-muted); transition: all 0.15s ease; }
-  .mode-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4); }
-  
-  .metrics-bar { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; font-family: 'JetBrains Mono', monospace; }
-  
-  .results-list { display: flex; flex-direction: column; gap: 1rem; }
-  .result-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; transition: transform 0.15s ease, border-color 0.15s ease; position: relative; }
-  .result-card:hover { transform: translateY(-2px); border-color: #3b82f6; }
-  .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
-  .doc-badge { background: var(--badge-bg); color: var(--badge-text); font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 6px; font-family: 'JetBrains Mono', monospace; }
-  .score-badge { font-size: 0.8rem; font-weight: 600; color: #38bdf8; font-family: 'JetBrains Mono', monospace; }
-  
-  .result-snippet { font-size: 0.95rem; line-height: 1.55; color: #cbd5e1; }
-  .result-snippet b { color: var(--highlight); font-weight: 600; }
-  
-  .click-btn { margin-top: 0.75rem; font-size: 0.75rem; padding: 0.35rem 0.7rem; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); border-radius: 6px; color: #93c5fd; cursor: pointer; transition: all 0.15s; font-family: 'JetBrains Mono', monospace; }
-  .click-btn:hover { background: rgba(59,130,246,0.3); }
-  .click-btn.clicked { background: rgba(16,185,129,0.2); border-color: var(--success); color: var(--success); }
+  /* Omnibar */
+  .g-omnibar-wrapper {
+    position: relative;
+    flex: 1;
+  }
+  .g-omnibar {
+    display: flex;
+    align-items: center;
+    background: var(--g-surface);
+    border: 1px solid transparent;
+    border-radius: 24px;
+    padding: 0 16px;
+    height: 44px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.28);
+    transition: background 0.15s, box-shadow 0.15s, border-radius 0.15s;
+  }
+  .g-omnibar:hover {
+    background: var(--g-surface-hover);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.38);
+  }
+  .g-omnibar.focused {
+    background: var(--g-surface);
+    border-color: transparent;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    border-radius: 24px 24px 0 0;
+  }
+  .g-search-icon {
+    width: 18px;
+    height: 18px;
+    fill: var(--g-text-muted);
+    margin-right: 12px;
+    flex-shrink: 0;
+  }
+  .g-search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--g-text);
+    font-size: 15px;
+    font-family: var(--font-body);
+  }
+  .g-search-input::placeholder {
+    color: var(--g-text-muted);
+  }
+  .g-clear-btn {
+    background: none;
+    border: none;
+    color: var(--g-text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px 8px;
+    display: none;
+  }
+  .g-clear-btn:hover { color: var(--g-text); }
 
-  .add-doc-panel { margin-top: 3rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
-  .add-doc-panel h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: #e2e8f0; }
-  .add-form { display: flex; gap: 0.75rem; }
-  .add-form input[type="number"] { width: 100px; padding: 0.6rem; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: #fff; }
-  .add-form input[type="text"] { flex: 1; padding: 0.6rem; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: #fff; }
-  .add-form button { padding: 0.6rem 1.2rem; background: var(--accent); border: none; border-radius: 6px; color: #fff; font-weight: 600; cursor: pointer; }
+  /* Autocomplete dropdown */
+  .g-suggest-dropdown {
+    position: absolute;
+    top: 44px;
+    left: 0;
+    right: 0;
+    background: var(--g-surface);
+    border-radius: 0 0 24px 24px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+    overflow: hidden;
+    z-index: 1000;
+    display: none;
+    border-top: 1px solid var(--g-border);
+  }
+  .g-suggest-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--g-text);
+  }
+  .g-suggest-item:hover, .g-suggest-item.active {
+    background: var(--g-surface-hover);
+  }
+  .g-suggest-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .g-suggest-left svg {
+    width: 14px;
+    height: 14px;
+    fill: var(--g-text-muted);
+  }
+  .g-suggest-freq {
+    font-size: 11px;
+    color: var(--g-text-muted);
+    font-family: var(--font-mono);
+  }
+
+  /* Header Right */
+  .g-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .g-telemetry-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(129, 201, 149, 0.12);
+    border: 1px solid rgba(129, 201, 149, 0.3);
+    border-radius: 16px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--g-accent-green);
+  }
+  .g-pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--g-accent-green);
+    box-shadow: 0 0 6px var(--g-accent-green);
+  }
+
+  /* Navigation Tabs */
+  .g-nav-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 24px;
+    background: var(--g-bg);
+    border-bottom: 1px solid var(--g-border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .g-nav-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    color: var(--g-text-muted);
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .g-nav-tab:hover {
+    color: var(--g-text);
+  }
+  .g-nav-tab.active {
+    color: var(--g-accent);
+    border-bottom-color: var(--g-accent);
+  }
+
+  /* Filter Toolbar */
+  .g-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 24px;
+    background: var(--g-bg);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    flex-wrap: wrap;
+  }
+  .g-filter-label {
+    font-size: 12px;
+    color: var(--g-text-muted);
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-right: 4px;
+    font-family: var(--font-main);
+  }
+  .g-filter-pill {
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 12px;
+    color: var(--g-text-muted);
+    background: var(--g-surface);
+    border: 1px solid var(--g-border);
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .g-filter-pill:hover {
+    background: var(--g-surface-hover);
+    color: var(--g-text);
+  }
+  .g-filter-pill.active {
+    background: rgba(138, 180, 248, 0.15);
+    border-color: var(--g-accent);
+    color: var(--g-accent);
+    font-weight: 500;
+  }
+
+  /* Main Container (Two Columns) */
+  .g-layout {
+    max-width: 1280px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 16px 24px 48px 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 680px) 380px;
+    gap: 40px;
+    flex: 1;
+  }
+
+  /* Left Column: Results */
+  .g-results-pane {
+    display: flex;
+    flex-direction: column;
+  }
+  .g-stats-line {
+    font-size: 12px;
+    color: var(--g-text-muted);
+    margin-bottom: 18px;
+    font-family: var(--font-mono);
+  }
+
+  .g-results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .g-result-item {
+    display: flex;
+    flex-direction: column;
+  }
+  .g-result-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .g-result-favicon {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--g-surface-hover);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--g-accent);
+  }
+  .g-result-source {
+    font-size: 12px;
+    color: var(--g-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .g-result-category {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--g-surface);
+    font-size: 11px;
+    color: #9aa0a6;
+    font-family: var(--font-mono);
+  }
+  .g-result-title {
+    font-family: var(--font-main);
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--g-link);
+    text-decoration: none;
+    margin-bottom: 6px;
+    cursor: pointer;
+    line-height: 1.35;
+  }
+  .g-result-title:hover {
+    text-decoration: underline;
+  }
+  .g-result-snippet {
+    font-size: 14px;
+    color: var(--g-text-snippet);
+    line-height: 1.58;
+    margin-bottom: 8px;
+  }
+  .g-result-snippet b {
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .g-chips-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .g-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--g-surface);
+    color: var(--g-text-muted);
+    border: 1px solid var(--g-border);
+  }
+  .g-chip.score { color: var(--g-accent); border-color: rgba(138, 180, 248, 0.3); }
+  .g-chip.year { color: var(--g-accent-yellow); border-color: rgba(253, 214, 99, 0.3); }
+
+  .g-feedback-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-family: var(--font-main);
+    padding: 2px 10px;
+    border-radius: 12px;
+    background: transparent;
+    border: 1px solid var(--g-border);
+    color: var(--g-text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: auto;
+  }
+  .g-feedback-btn:hover {
+    border-color: var(--g-accent);
+    color: var(--g-accent);
+    background: rgba(138, 180, 248, 0.08);
+  }
+  .g-feedback-btn.clicked {
+    border-color: var(--g-accent-green);
+    color: var(--g-accent-green);
+    background: rgba(129, 201, 149, 0.15);
+  }
+
+  /* Right Column: Knowledge Panel / Telemetry & Ingestion */
+  .g-sidebar-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .g-card {
+    background: var(--g-surface);
+    border: 1px solid var(--g-border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .g-card-title {
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 500;
+    color: #fff;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .g-card-title .card-sub {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--g-text-muted);
+    font-weight: normal;
+  }
+
+  .g-telemetry-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .g-metric-box {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .g-metric-label {
+    font-size: 11px;
+    color: var(--g-text-muted);
+    font-family: var(--font-main);
+    margin-bottom: 2px;
+  }
+  .g-metric-value {
+    font-size: 16px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--g-text);
+  }
+
+  .g-pipeline-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--g-text-muted);
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .g-flow-step {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .g-flow-step.active {
+    color: var(--g-accent);
+    font-weight: 500;
+  }
+
+  /* Ingestion Card */
+  .g-ingest-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .g-form-row {
+    display: flex;
+    gap: 8px;
+  }
+  .g-input {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--g-border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--g-text);
+    font-size: 13px;
+    font-family: var(--font-body);
+    outline: none;
+  }
+  .g-input:focus { border-color: var(--g-accent); }
+  .g-input.id-input { width: 90px; font-family: var(--font-mono); }
+  .g-input.cat-input { width: 110px; }
+  .g-textarea {
+    width: 100%;
+    min-height: 70px;
+    resize: vertical;
+  }
+  .g-btn {
+    background: var(--g-accent);
+    color: #202124;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+    align-self: flex-start;
+  }
+  .g-btn:hover { background: #aecbfa; }
+
+  /* Empty State */
+  .g-empty-state {
+    padding: 40px 0;
+    text-align: center;
+    color: var(--g-text-muted);
+  }
+  .g-empty-title {
+    font-family: var(--font-main);
+    font-size: 16px;
+    margin-bottom: 6px;
+    color: var(--g-text);
+  }
+
+  @media (max-width: 900px) {
+    .g-layout {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">⚡ <span>Adaptive Search</span></div>
-  <div class="status-badge"><div class="status-dot"></div><span id="docCount">Online</span></div>
-</header>
-<main>
-  <div class="search-container">
-    <input type="text" id="queryInput" class="search-input" placeholder="Search across 10,000+ documents (e.g. 'machine learning', 'cloud DevOps', 'cryptography')..." autofocus autocomplete="off">
-    <div class="suggest-box" id="suggestBox"></div>
-  </div>
-  <div class="mode-selector">
-    <div class="mode-pill active" data-mode="hybrid">⚡ Hybrid (RRF)</div>
-    <div class="mode-pill" data-mode="rerank">🧠 Stage-2 Neural Re-ranker</div>
-    <div class="mode-pill" data-mode="wand">📊 WAND Top-K Pruned</div>
-    <div class="mode-pill" data-mode="bm25">📖 BM25 Lexical</div>
-    <div class="mode-pill" data-mode="phrase">🔍 Phrase (Positional)</div>
-  </div>
-  <div class="metrics-bar">
-    <span id="metricsResult">Type a query to search</span>
-    <span id="metricsLatency"></span>
-  </div>
-  <div class="results-list" id="resultsList"></div>
 
-  <div class="add-doc-panel">
-    <h3>⚡ Live Real-Time Document Ingestion (LSM WAL)</h3>
-    <form class="add-form" id="addDocForm">
-      <input type="number" id="newDocId" placeholder="Doc ID" required value="10001">
-      <input type="text" id="newDocContent" placeholder="Document content..." required>
-      <button type="submit">Ingest</button>
-    </form>
+<header class="g-header">
+  <div class="g-header-left">
+    <div class="g-logo" onclick="resetSearch()">
+      <span class="logo-blue">A</span><span class="logo-red">d</span><span class="logo-yellow">a</span><span class="logo-blue">p</span><span class="logo-green">t</span><span class="logo-red">i</span><span class="logo-blue">v</span><span class="logo-green">e</span>
+      <span style="color:#e8eaed; margin-left:4px; font-weight:400;">Search</span>
+      <span class="logo-badge" id="engineVersion">v0.3.0</span>
+    </div>
+
+    <div class="g-omnibar-wrapper">
+      <div class="g-omnibar" id="omnibar">
+        <svg class="g-search-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" id="queryInput" class="g-search-input" placeholder="Search across documents or query terms (/ to focus)..." autofocus autocomplete="off" spellcheck="false">
+        <button class="g-clear-btn" id="clearBtn" onclick="clearSearch()">✕</button>
+      </div>
+      <div class="g-suggest-dropdown" id="suggestDropdown"></div>
+    </div>
   </div>
+
+  <div class="g-header-right">
+    <div class="g-telemetry-chip">
+      <div class="g-pulse-dot"></div>
+      <span id="headerDocCount">30 docs indexed</span>
+    </div>
+  </div>
+</header>
+
+<div class="g-nav-tabs">
+  <div class="g-nav-tab active" data-mode="hybrid">All (Hybrid RRF)</div>
+  <div class="g-nav-tab" data-mode="rerank">Stage-2 Neural (Cross-Encoder)</div>
+  <div class="g-nav-tab" data-mode="wand">WAND Top-K Pruned</div>
+  <div class="g-nav-tab" data-mode="bm25">BM25 Lexical</div>
+  <div class="g-nav-tab" data-mode="phrase">Exact Phrases</div>
+</div>
+
+<div class="g-filter-bar">
+  <span class="g-filter-label">Category:</span>
+  <span class="g-filter-pill active" data-filter="">All</span>
+  <span class="g-filter-pill" data-filter="category:AI">AI & ML</span>
+  <span class="g-filter-pill" data-filter="category:Cloud">Cloud</span>
+  <span class="g-filter-pill" data-filter="category:Security">Security</span>
+  <span class="g-filter-pill" data-filter="category:Genomics">Genomics</span>
+  <span class="g-filter-pill" data-filter="category:Quantum">Quantum</span>
+
+  <span class="g-filter-label" style="margin-left:16px;">Year:</span>
+  <span class="g-filter-pill" data-filter-year="year:>=2024">≥ 2024</span>
+  <span class="g-filter-pill" data-filter-year="year:>=2023">≥ 2023</span>
+</div>
+
+<main class="g-layout">
+  <!-- Left: Results List -->
+  <section class="g-results-pane">
+    <div class="g-stats-line" id="statsLine">Type a query to search the indexed corpus</div>
+    <div class="g-results-list" id="resultsList">
+      <div class="g-empty-state">
+        <div class="g-empty-title">Instant Multi-Stage IR Search</div>
+        <p>Type keywords like <code>machine learning</code>, <code>cloud microservices</code>, <code>neural networks</code> to test real-time retrieval.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Right: Telemetry & Ingestion Card -->
+  <aside class="g-sidebar-pane">
+    <div class="g-card">
+      <div class="g-card-title">
+        <span>Execution Telemetry</span>
+        <span class="card-sub" id="telemetryLatency">— µs</span>
+      </div>
+      <div class="g-telemetry-grid">
+        <div class="g-metric-box">
+          <div class="g-metric-label">Server Latency</div>
+          <div class="g-metric-value" id="statLatency">—</div>
+        </div>
+        <div class="g-metric-box">
+          <div class="g-metric-label">Client Latency</div>
+          <div class="g-metric-value" id="statClientLatency">—</div>
+        </div>
+        <div class="g-metric-box">
+          <div class="g-metric-label">Active Mode</div>
+          <div class="g-metric-value" id="statMode" style="font-size:13px; color:var(--g-accent);">Hybrid</div>
+        </div>
+        <div class="g-metric-box">
+          <div class="g-metric-label">Total Index</div>
+          <div class="g-metric-value" id="statDocs">30</div>
+        </div>
+      </div>
+
+      <div class="g-pipeline-flow">
+        <div class="g-flow-step" id="stepToken"><span>1. Tokenizer & Stemmer</span><span>✓</span></div>
+        <div class="g-flow-step" id="stepL1"><span>2. Stage-1 Lexical + HNSW</span><span>✓</span></div>
+        <div class="g-flow-step" id="stepRRF"><span>3. Reciprocal Rank Fusion</span><span>✓</span></div>
+        <div class="g-flow-step" id="stepL2"><span>4. Stage-2 Neural Rerank</span><span id="stepL2Status">Standby</span></div>
+        <div class="g-flow-step" id="stepFilter"><span>5. Bitset Attribute Filter</span><span id="stepFilterStatus">Pass</span></div>
+      </div>
+    </div>
+
+    <!-- Live Document Ingestion Panel -->
+    <div class="g-card">
+      <div class="g-card-title">
+        <span>Real-Time Index Ingestion</span>
+        <span class="card-sub">LSM WAL</span>
+      </div>
+      <form class="g-ingest-form" id="ingestForm">
+        <div class="g-form-row">
+          <input type="number" id="inDocId" class="g-input id-input" placeholder="Doc ID" value="1001" required>
+          <input type="text" id="inDocCat" class="g-input cat-input" placeholder="Category" value="AI">
+        </div>
+        <textarea id="inDocText" class="g-input g-textarea" placeholder="Paste document content, abstract, or extracted PDF passage..." required></textarea>
+        <button type="submit" class="g-btn">Index Document</button>
+      </form>
+    </div>
+  </aside>
 </main>
+
 <script>
 let currentMode = 'hybrid';
-let debounceTimer = null;
+let activeCategoryFilter = '';
+let activeYearFilter = '';
+let searchDebounce = null;
 let suggestDebounce = null;
+let activeSuggestIndex = -1;
 
-async function updateStatus() {
+const queryInput = document.getElementById('queryInput');
+const omnibar = document.getElementById('omnibar');
+const clearBtn = document.getElementById('clearBtn');
+const suggestDropdown = document.getElementById('suggestDropdown');
+const resultsList = document.getElementById('resultsList');
+const statsLine = document.getElementById('statsLine');
+
+// Focus shortcut
+window.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== queryInput && document.activeElement.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    queryInput.focus();
+    queryInput.select();
+  }
+});
+
+async function refreshEngineStatus() {
   try {
     const res = await fetch('/health');
     const data = await res.json();
-    document.getElementById('docCount').innerText = `${data.totalDocs} docs indexed | v${data.version}`;
+    document.getElementById('headerDocCount').innerText = `${data.totalDocs} docs indexed`;
+    document.getElementById('statDocs').innerText = data.totalDocs;
+    document.getElementById('engineVersion').innerText = `v${data.version}`;
   } catch (e) {}
 }
-updateStatus();
+refreshEngineStatus();
 
-document.querySelectorAll('.mode-pill').forEach(pill => {
-  pill.addEventListener('click', () => {
-    document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    currentMode = pill.dataset.mode;
+// Navigation Tabs
+document.querySelectorAll('.g-nav-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.g-nav-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentMode = tab.dataset.mode;
+    document.getElementById('statMode').innerText = tab.innerText.split(' ')[0];
     executeSearch();
   });
 });
 
-const queryInput = document.getElementById('queryInput');
-const suggestBox = document.getElementById('suggestBox');
-
-queryInput.addEventListener('input', () => {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(executeSearch, 150);
-
-  clearTimeout(suggestDebounce);
-  suggestDebounce = setTimeout(fetchSuggestions, 80);
+// Category Filter Chips
+document.querySelectorAll('.g-filter-pill[data-filter]').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.g-filter-pill[data-filter]').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    activeCategoryFilter = pill.dataset.filter;
+    executeSearch();
+  });
 });
 
-async function fetchSuggestions() {
-  const q = queryInput.value.trim();
-  if (q.length < 2) {
-    suggestBox.style.display = 'none';
-    return;
-  }
-  try {
-    const res = await fetch(`/suggest?q=${encodeURIComponent(q)}&k=5`);
-    const data = await res.json();
-    if (data.suggestions && data.suggestions.length > 0) {
-      suggestBox.innerHTML = data.suggestions.map(s => `
-        <div class="suggest-item" onclick="selectSuggestion('${s.text.replace(/'/g, "\\'")}')">
-          <span>🔍 ${s.text}</span>
-          <span class="suggest-freq">${s.frequency} hits</span>
-        </div>
-      `).join('');
-      suggestBox.style.display = 'block';
+// Year Filter Chips
+document.querySelectorAll('.g-filter-pill[data-filter-year]').forEach(pill => {
+  pill.addEventListener('click', () => {
+    if (pill.classList.contains('active')) {
+      pill.classList.remove('active');
+      activeYearFilter = '';
     } else {
-      suggestBox.style.display = 'none';
+      document.querySelectorAll('.g-filter-pill[data-filter-year]').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      activeYearFilter = pill.dataset.filterYear;
     }
-  } catch (e) {
-    suggestBox.style.display = 'none';
+    executeSearch();
+  });
+});
+
+// Omnibar events
+queryInput.addEventListener('focus', () => {
+  omnibar.classList.add('focused');
+  if (queryInput.value.trim().length >= 2) fetchSuggestions();
+});
+
+queryInput.addEventListener('blur', () => {
+  setTimeout(() => {
+    omnibar.classList.remove('focused');
+    suggestDropdown.style.display = 'none';
+  }, 200);
+});
+
+queryInput.addEventListener('input', () => {
+  const val = queryInput.value;
+  clearBtn.style.display = val.length > 0 ? 'block' : 'none';
+
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(executeSearch, 120);
+
+  clearTimeout(suggestDebounce);
+  suggestDebounce = setTimeout(fetchSuggestions, 60);
+});
+
+queryInput.addEventListener('keydown', (e) => {
+  const items = document.querySelectorAll('.g-suggest-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (items.length > 0) {
+      activeSuggestIndex = (activeSuggestIndex + 1) % items.length;
+      updateActiveSuggest(items);
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (items.length > 0) {
+      activeSuggestIndex = (activeSuggestIndex - 1 + items.length) % items.length;
+      updateActiveSuggest(items);
+    }
+  } else if (e.key === 'Enter') {
+    if (activeSuggestIndex >= 0 && items[activeSuggestIndex]) {
+      items[activeSuggestIndex].click();
+    } else {
+      suggestDropdown.style.display = 'none';
+      executeSearch();
+    }
+  } else if (e.key === 'Escape') {
+    suggestDropdown.style.display = 'none';
   }
+});
+
+function updateActiveSuggest(items) {
+  items.forEach((item, idx) => {
+    if (idx === activeSuggestIndex) {
+      item.classList.add('active');
+      queryInput.value = item.dataset.text;
+    } else {
+      item.classList.remove('active');
+    }
+  });
 }
 
-function selectSuggestion(text) {
-  queryInput.value = text;
-  suggestBox.style.display = 'none';
+function clearSearch() {
+  queryInput.value = '';
+  clearBtn.style.display = 'none';
+  suggestDropdown.style.display = 'none';
+  executeSearch();
+  queryInput.focus();
+}
+
+function resetSearch() {
+  queryInput.value = '';
+  clearBtn.style.display = 'none';
   executeSearch();
 }
 
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('.search-container')) {
-    suggestBox.style.display = 'none';
-  }
-});
-
-async function executeSearch() {
+// Autocomplete fetch
+async function fetchSuggestions() {
   const q = queryInput.value.trim();
-  if (!q) {
-    document.getElementById('resultsList').innerHTML = '';
-    document.getElementById('metricsResult').innerText = 'Type a query to search';
-    document.getElementById('metricsLatency').innerText = '';
+  if (q.length < 2) {
+    suggestDropdown.style.display = 'none';
     return;
   }
-
-  const t0 = performance.now();
   try {
-    const res = await fetch(`/search?q=${encodeURIComponent(q)}&mode=${currentMode}&k=10`);
+    const res = await fetch(`/suggest?q=${encodeURIComponent(q)}&k=6`);
     const data = await res.json();
-    const clientLatency = Math.round((performance.now() - t0) * 10) / 10;
-    
-    document.getElementById('metricsResult').innerText = `Found ${data.total} results for "${data.query}"`;
-    document.getElementById('metricsLatency').innerText = `Server: ${data.latencyUs} µs | Client: ${clientLatency} ms`;
-
-    const list = document.getElementById('resultsList');
-    if (data.results.length === 0) {
-      list.innerHTML = `<div style="text-align:center; padding: 2rem; color: var(--text-muted);">No matching documents found.</div>`;
-      return;
-    }
-
-    list.innerHTML = data.results.map((r, idx) => `
-      <div class="result-card">
-        <div class="result-header">
-          <span class="doc-badge">DOC #${r.docId}</span>
-          <span class="score-badge">Score: ${r.score}</span>
+    if (data.suggestions && data.suggestions.length > 0) {
+      activeSuggestIndex = -1;
+      suggestDropdown.innerHTML = data.suggestions.map(s => `
+        <div class="g-suggest-item" data-text="${s.text}" onclick="chooseSuggestion('${s.text.replace(/'/g, "\\'")}')">
+          <div class="g-suggest-left">
+            <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <span>${highlightPrefix(s.text, q)}</span>
+          </div>
+          <span class="g-suggest-freq">${s.frequency}</span>
         </div>
-        <div class="result-snippet">${r.snippet || r.content}</div>
-        <button class="click-btn" onclick="recordClick(${r.docId}, this)">👍 Relevant (Click feedback)</button>
-      </div>
-    `).join('');
+      `).join('');
+      suggestDropdown.style.display = 'block';
+    } else {
+      suggestDropdown.style.display = 'none';
+    }
   } catch (e) {
-    document.getElementById('metricsResult').innerText = 'Error executing search';
+    suggestDropdown.style.display = 'none';
   }
 }
 
-async function recordClick(docId, btn) {
+function highlightPrefix(text, prefix) {
+  if (text.toLowerCase().startsWith(prefix.toLowerCase())) {
+    return `<b>${text.substring(0, prefix.length)}</b>${text.substring(prefix.length)}`;
+  }
+  return text;
+}
+
+function chooseSuggestion(text) {
+  queryInput.value = text;
+  suggestDropdown.style.display = 'none';
+  executeSearch();
+}
+
+// Execute Multi-stage Search
+async function executeSearch() {
+  const q = queryInput.value.trim();
+  if (!q) {
+    resultsList.innerHTML = `
+      <div class="g-empty-state">
+        <div class="g-empty-title">Instant Multi-Stage IR Search</div>
+        <p>Type keywords like <code>machine learning</code>, <code>cloud microservices</code>, <code>neural networks</code> to test real-time retrieval.</p>
+      </div>`;
+    statsLine.innerText = 'Type a query to search the indexed corpus';
+    document.getElementById('statLatency').innerText = '—';
+    document.getElementById('statClientLatency').innerText = '—';
+    document.getElementById('telemetryLatency').innerText = '— µs';
+    return;
+  }
+
+  // Combine filters
+  const filters = [];
+  if (activeCategoryFilter) filters.push(activeCategoryFilter);
+  if (activeYearFilter) filters.push(activeYearFilter);
+  const filterParam = filters.join(',');
+
+  const t0 = performance.now();
+  try {
+    const url = `/search?q=${encodeURIComponent(q)}&mode=${currentMode}&k=10${filterParam ? `&filter=${encodeURIComponent(filterParam)}` : ''}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const clientLatencyMs = (performance.now() - t0).toFixed(1);
+
+    // Update telemetry sidebar
+    document.getElementById('statLatency').innerText = `${data.latencyUs} µs`;
+    document.getElementById('statClientLatency').innerText = `${clientLatencyMs} ms`;
+    document.getElementById('telemetryLatency').innerText = `${data.latencyUs} µs`;
+
+    document.getElementById('stepL2Status').innerText = currentMode === 'rerank' ? 'Active' : 'Bypassed';
+    document.getElementById('stepFilterStatus').innerText = filterParam ? filterParam : 'None';
+
+    const numResults = data.results ? data.results.length : 0;
+    statsLine.innerText = `About ${numResults} results (${data.latencyUs} µs server latency | ${clientLatencyMs} ms roundtrip)`;
+
+    if (!data.results || data.results.length === 0) {
+      resultsList.innerHTML = `
+        <div class="g-empty-state">
+          <div class="g-empty-title">No matching documents found</div>
+          <p>Try adjusting your query or clearing active category filters.</p>
+        </div>`;
+      return;
+    }
+
+    resultsList.innerHTML = data.results.map((r, idx) => {
+      const category = r.category || 'General';
+      const year = r.year || 2024;
+      const title = extractTitle(r.content, r.docId);
+
+      return `
+        <article class="g-result-item">
+          <div class="g-result-meta">
+            <div class="g-result-favicon">${r.docId}</div>
+            <div class="g-result-source">
+              <span>corpus</span>
+              <span>›</span>
+              <span class="g-result-category">${category}</span>
+              <span>›</span>
+              <span>doc_${r.docId}</span>
+            </div>
+          </div>
+          <a class="g-result-title" onclick="recordFeedback(${r.docId}, this)">${title}</a>
+          <div class="g-result-snippet">${r.snippet || r.content}</div>
+          <div class="g-chips-row">
+            <span class="g-chip score">Rank Score: ${r.score}</span>
+            ${r.bm25Score ? `<span class="g-chip">BM25: ${r.bm25Score}</span>` : ''}
+            ${r.denseScore ? `<span class="g-chip">Dense: ${r.denseScore}</span>` : ''}
+            ${r.l1Score ? `<span class="g-chip">L1 Score: ${r.l1Score}</span>` : ''}
+            <span class="g-chip year">Year: ${year}</span>
+            <button class="g-feedback-btn" onclick="recordFeedback(${r.docId}, this)">★ Relevant</button>
+          </div>
+        </article>
+      `;
+    }).join('');
+
+  } catch (err) {
+    statsLine.innerText = 'Error connecting to search engine';
+  }
+}
+
+function extractTitle(content, docId) {
+  if (!content) return `Document #${docId}`;
+  const firstSentence = content.split('.')[0].trim();
+  if (firstSentence.length > 0 && firstSentence.length < 90) {
+    return firstSentence;
+  }
+  return content.substring(0, 75) + '...';
+}
+
+async function recordFeedback(docId, el) {
   try {
     await fetch('/click', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({docId})
     });
-    btn.classList.add('clicked');
-    btn.innerText = '✓ Feedback Recorded (Personalized)';
+    const btn = el.closest('.g-result-item').querySelector('.g-feedback-btn');
+    if (btn) {
+      btn.classList.add('clicked');
+      btn.innerText = '✓ Personalized';
+    }
   } catch (e) {}
 }
 
-document.getElementById('addDocForm').addEventListener('submit', async (e) => {
+// Ingestion Form
+document.getElementById('ingestForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const docId = parseInt(document.getElementById('newDocId').value);
-  const content = document.getElementById('newDocContent').value;
+  const docId = parseInt(document.getElementById('inDocId').value);
+  const content = document.getElementById('inDocText').value.trim();
+  const category = document.getElementById('inDocCat').value.trim();
+
+  if (!content) return;
+
   try {
-    await fetch('/document', {
+    const res = await fetch('/document', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({docId, content})
     });
-    alert(`Document #${docId} ingested live!`);
-    updateStatus();
+    document.getElementById('inDocText').value = '';
+    document.getElementById('inDocId').value = docId + 1;
+    refreshEngineStatus();
     executeSearch();
   } catch (err) {
-    alert('Error ingesting document');
+    alert('Failed to index document');
   }
 });
 </script>
