@@ -983,36 +983,56 @@ std::string SearchServer::handleWebUI() {
 <body>
 
 <!-- ══════════════════════════════════════════════════════════════════ -->
-<!-- VIEW 1: GOOGLE SEARCH HOME CANVAS                                  -->
+<!-- VIEW 1: PRISM SEARCH HOME CANVAS                                   -->
 <!-- ══════════════════════════════════════════════════════════════════ -->
 <div id="homeView">
   <div class="home-header">
-    <button class="g-action-btn" onclick="openDrawer()">+ Ingest Document</button>
+    <button class="g-action-btn" onclick="openDrawer()">+ Ingest Document / PDF</button>
     <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme" id="themeBtnHome">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
     </button>
   </div>
 
   <div class="home-center">
-    <div class="home-logo logo-text">
-      <span class="c-blue">A</span><span class="c-red">d</span><span class="c-yellow">a</span><span class="c-blue">p</span><span class="c-green">t</span><span class="c-red">i</span><span class="c-blue">v</span><span class="c-green">e</span>
-      <span style="margin-left:8px; font-weight:400;">Search</span>
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:12px;">
+      <svg width="56" height="56" viewBox="0 0 48 48" fill="none">
+        <defs>
+          <linearGradient id="pGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#38bdf8"/>
+            <stop offset="100%" stop-color="#818cf8"/>
+          </linearGradient>
+          <linearGradient id="pGrad2" x1="100%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#c084fc"/>
+            <stop offset="100%" stop-color="#38bdf8"/>
+          </linearGradient>
+        </defs>
+        <polygon points="24,4 44,40 4,40" stroke="url(#pGrad1)" stroke-width="3" fill="none" stroke-linejoin="round"/>
+        <line x1="24" y1="4" x2="24" y2="40" stroke="url(#pGrad2)" stroke-width="2" stroke-dasharray="3 3"/>
+        <circle cx="24" cy="22" r="4" fill="#38bdf8"/>
+      </svg>
+      <div style="display:flex; flex-direction:column;">
+        <div style="font-family:'Google Sans', sans-serif; font-size:48px; font-weight:700; letter-spacing:-1px; line-height:1; display:flex; align-items:baseline; gap:8px;">
+          <span style="background:linear-gradient(135deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">PRISM</span>
+          <span style="font-size:16px; font-weight:600; padding:2px 8px; border-radius:6px; background:rgba(56, 189, 248, 0.15); color:#38bdf8; border:1px solid rgba(56, 189, 248, 0.3); font-family:'Roboto Mono', monospace;">IR</span>
+        </div>
+      </div>
     </div>
+
     <div class="home-subtitle">
-      <span>Neural Hybrid & Stage-2 IR Engine</span>
+      <span>High-Precision Multi-Stage Neural & Distributed IR Engine</span>
       <span class="version-tag" id="homeVersionTag">v0.3.0</span>
     </div>
 
     <div class="home-omnibar-box">
       <div class="home-omnibar" id="homeOmnibar">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--text-muted)"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-        <input type="text" id="homeInput" placeholder="Search across documents or technical terms (/ to focus)..." autocomplete="off" spellcheck="false">
+        <input type="text" id="homeInput" placeholder="Search across corpus documents (/ to focus)..." autocomplete="off" spellcheck="false">
       </div>
       <div class="suggest-menu" id="homeSuggestMenu"></div>
     </div>
 
     <div class="home-buttons">
-      <button class="g-action-btn" onclick="triggerSearchFromHome()">Adaptive Search</button>
+      <button class="g-action-btn" onclick="triggerSearchFromHome()">Prism Search</button>
       <button class="g-action-btn" onclick="feelingLucky()">I'm Feeling Lucky</button>
     </div>
 
@@ -1037,18 +1057,22 @@ std::string SearchServer::handleWebUI() {
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════ -->
-<!-- VIEW 2: GOOGLE SEARCH RESULTS PAGE                                  -->
+<!-- VIEW 2: SEARCH RESULTS PAGE                                         -->
 <!-- ══════════════════════════════════════════════════════════════════ -->
 <div id="resultsView">
   <header class="res-header">
     <div class="res-header-left">
-      <div class="res-logo logo-text" onclick="showHomeView()">
-        <span class="c-blue">A</span><span class="c-red">d</span><span class="c-yellow">a</span><span class="c-blue">p</span><span class="c-green">t</span><span class="c-red">i</span><span class="c-blue">v</span><span class="c-green">e</span>
+      <div class="res-logo" onclick="showHomeView()" style="display:flex; align-items:center; gap:8px;">
+        <svg width="28" height="28" viewBox="0 0 48 48" fill="none">
+          <polygon points="24,4 44,40 4,40" stroke="#38bdf8" stroke-width="4" fill="none" stroke-linejoin="round"/>
+          <circle cx="24" cy="22" r="5" fill="#81c995"/>
+        </svg>
+        <span style="font-family:'Google Sans', sans-serif; font-size:22px; font-weight:700; background:linear-gradient(135deg, #38bdf8, #818cf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; letter-spacing:-0.5px;">PRISM</span>
       </div>
 
       <div class="res-omnibar-box">
         <div class="res-omnibar" id="resOmnibar">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--text-muted)"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--text-muted)"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 11.99 14 9.5 14z"/></svg>
           <input type="text" id="resInput" placeholder="Search across documents..." autocomplete="off" spellcheck="false">
           <button style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;" onclick="clearResSearch()">✕</button>
         </div>
@@ -1057,7 +1081,7 @@ std::string SearchServer::handleWebUI() {
     </div>
 
     <div style="display:flex; align-items:center; gap:12px;">
-      <button class="g-action-btn" onclick="openDrawer()">+ Ingest</button>
+      <button class="g-action-btn" onclick="openDrawer()">+ Ingest PDF</button>
       <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme" id="themeBtnRes">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
       </button>
