@@ -30,6 +30,9 @@ public:
     // Record user click for personalisation boost
     void recordClick(int docId);
 
+    // Clear query cache on corpus mutations
+    void clearCache() { cache.clear(); }
+
     int totalDocs() const { return index.getTotalDocuments(); }
 
     const InvertedIndex& getIndex() const { return index; }

@@ -68,9 +68,7 @@ MetadataBitset MetadataIndex::matchNumericRange(const std::string& field, double
 
 MetadataBitset MetadataIndex::evaluateFilter(const std::string& filterExpr, size_t totalDocs) const {
     if (filterExpr.empty()) {
-        MetadataBitset all(totalDocs + 100);
-        for (size_t i = 0; i < totalDocs + 100; ++i) all.set(i);
-        return all;
+        return MetadataBitset::matchAll();
     }
 
     std::vector<std::string> clauses;
@@ -84,9 +82,7 @@ MetadataBitset MetadataIndex::evaluateFilter(const std::string& filterExpr, size
     }
 
     if (clauses.empty()) {
-        MetadataBitset all(totalDocs + 100);
-        for (size_t i = 0; i < totalDocs + 100; ++i) all.set(i);
-        return all;
+        return MetadataBitset::matchAll();
     }
 
     MetadataBitset result;

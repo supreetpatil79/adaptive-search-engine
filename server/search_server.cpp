@@ -77,6 +77,74 @@ std::string escapeJson(const std::string& s) {
     }
     return o.str();
 }
+
+std::string extractJsonString(const std::string& json, const std::string& key) {
+    std::string searchKey = "\"" + key + "\"";
+    auto keyPos = json.find(searchKey);
+    if (keyPos == std::string::npos) return "";
+
+    auto colonPos = json.find(':', keyPos + searchKey.length());
+    if (colonPos == std::string::npos) return "";
+
+    auto startQuote = json.find('"', colonPos + 1);
+    if (startQuote == std::string::npos) return "";
+
+    std::string val;
+    bool escaped = false;
+    for (size_t i = startQuote + 1; i < json.size(); ++i) {
+        char c = json[i];
+        if (escaped) {
+            if (c == '"') val += '"';
+            else if (c == '\\') val += '\\';
+            else if (c == '/') val += '/';
+            else if (c == 'b') val += '\b';
+            else if (c == 'f') val += '\f';
+            else if (c == 'n') val += '\n';
+            else if (c == 'r') val += '\r';
+            else if (c == 't') val += '\t';
+            else if (c == 'u' && i + 4 < json.size()) {
+                std::string hexStr = json.substr(i + 1, 4);
+                try {
+                    int code = std::stoi(hexStr, nullptr, 16);
+                    if (code < 128) val += static_cast<char>(code);
+                    else val += '?';
+                } catch (...) {}
+                i += 4;
+            } else {
+                val += c;
+            }
+            escaped = false;
+        } else {
+            if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                break;
+            } else {
+                val += c;
+            }
+        }
+    }
+    return val;
+}
+
+int extractJsonInt(const std::string& json, const std::string& key) {
+    std::string searchKey = "\"" + key + "\"";
+    auto keyPos = json.find(searchKey);
+    if (keyPos == std::string::npos) return 0;
+
+    auto colonPos = json.find(':', keyPos + searchKey.length());
+    if (colonPos == std::string::npos) return 0;
+
+    size_t i = colonPos + 1;
+    while (i < json.size() && (json[i] == ' ' || json[i] == '\t' || json[i] == '\r' || json[i] == '\n' || json[i] == '"')) {
+        i++;
+    }
+    int val = 0;
+    try {
+        val = std::stoi(json.substr(i));
+    } catch (...) {}
+    return val;
+}
 } // anonymous namespace
 
 SearchServer::SearchServer(SearchEngine& engine,
@@ -201,15 +269,41 @@ void SearchServer::serverLoop(int serverFd) {
 
 void SearchServer::handleClient(int clientFd) {
     totalRequests_++;
-    char buffer[4096];
-    ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
-    if (bytesRead <= 0) {
+    std::string req;
+    char buffer[8192];
+    ssize_t bytesRead = 0;
+
+    // Read HTTP request and complete body
+    while ((bytesRead = recv(clientFd, buffer, sizeof(buffer), 0)) > 0) {
+        req.append(buffer, bytesRead);
+        auto headerEnd = req.find("\r\n\r\n");
+        if (headerEnd != std::string::npos) {
+            size_t bodyStart = headerEnd + 4;
+            size_t contentLength = 0;
+            auto clPos = req.find("Content-Length:");
+            if (clPos == std::string::npos) clPos = req.find("content-length:");
+            if (clPos != std::string::npos && clPos < headerEnd) {
+                auto lineEnd = req.find("\r\n", clPos);
+                std::string clStr = req.substr(clPos + 15, lineEnd - (clPos + 15));
+                while (!clStr.empty() && (clStr.front() == ' ' || clStr.front() == '\t')) clStr.erase(clStr.begin());
+                try { contentLength = std::stoul(clStr); } catch (...) {}
+            }
+
+            // Keep reading until entire Content-Length body is received
+            while (req.size() < bodyStart + contentLength) {
+                ssize_t more = recv(clientFd, buffer, sizeof(buffer), 0);
+                if (more <= 0) break;
+                req.append(buffer, more);
+            }
+            break;
+        }
+    }
+
+    if (req.empty()) {
         close(clientFd);
         return;
     }
-    buffer[bytesRead] = '\0';
 
-    std::string req(buffer);
     std::istringstream iss(req);
     std::string method, path, httpVer;
     iss >> method >> path >> httpVer;
@@ -1332,7 +1426,7 @@ async function processPdfFile(file) {
         await fetch('/document', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({docId, content: docContent})
+          body: JSON.stringify({docId, content: docContent, category: category})
         });
         indexedPages++;
       }
@@ -1685,6 +1779,7 @@ async function giveFeedback(docId, el) {
 document.getElementById('ingestDrawerForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const docId = parseInt(document.getElementById('drawerDocId').value);
+  const cat = document.getElementById('drawerDocCat').value.trim() || 'AI';
   const content = document.getElementById('drawerDocContent').value.trim();
   if (!content) return;
 
@@ -1692,7 +1787,7 @@ document.getElementById('ingestDrawerForm').addEventListener('submit', async (e)
     await fetch('/document', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({docId, content})
+      body: JSON.stringify({docId, content, category: cat})
     });
     document.getElementById('drawerDocContent').value = '';
     document.getElementById('drawerDocId').value = docId + 1;
@@ -1969,35 +2064,23 @@ std::string SearchServer::handleSuggest(const std::string& prefix, int topK) {
 }
 
 std::string SearchServer::handleInsertDocument(const std::string& body) {
-    // Parse docId and content: {"docId": 123, "content": "..."}
-    int docId = 0;
-    std::string content;
-
-    auto idPos = body.find("\"docId\"");
-    if (idPos != std::string::npos) {
-        auto colon = body.find(':', idPos);
-        if (colon != std::string::npos) {
-            std::istringstream iss(body.substr(colon + 1));
-            iss >> docId;
-        }
-    }
-
-    auto contentPos = body.find("\"content\"");
-    if (contentPos != std::string::npos) {
-        auto quote1 = body.find('"', contentPos + 9);
-        if (quote1 != std::string::npos) {
-            auto quote2 = body.find('"', quote1 + 1);
-            if (quote2 != std::string::npos) {
-                content = body.substr(quote1 + 1, quote2 - quote1 - 1);
-            }
-        }
-    }
+    int docId = extractJsonInt(body, "docId");
+    std::string content = extractJsonString(body, "content");
+    std::string category = extractJsonString(body, "category");
+    if (category.empty()) category = "General";
 
     if (docId > 0 && !content.empty()) {
         engine_.addDocument(docId, content);
         engine_.finalizeIndex();
+        engine_.clearCache();
         docContent_[docId] = content;
         tombstones_.unmarkDeleted(docId);
+
+        DocumentMetadata meta;
+        meta.docId = docId;
+        meta.stringFields["category"] = category;
+        meta.numericFields["year"] = 2024.0;
+        metadataIndex_.setMetadata(docId, meta);
 
         // Update PrefixTrie
         auto tokens = Tokenizer::tokenize(content);
@@ -2005,24 +2088,20 @@ std::string SearchServer::handleInsertDocument(const std::string& body) {
             if (t.size() >= 3) prefixTrie_.insert(t, 1);
         }
 
+        std::cout << "[SearchServer] Document #" << docId << " (" << category << ") indexed successfully. (" << content.size() << " bytes)\n";
+
         return "{\"status\":\"ok\",\"action\":\"inserted\",\"docId\":" + std::to_string(docId) + "}";
     }
     return "{\"error\":\"Invalid document payload (requires docId > 0 and non-empty content)\"}";
 }
 
 std::string SearchServer::handleDeleteDocument(const std::string& body) {
-    // Parse docId: {"docId": 123}
-    auto pos = body.find("\"docId\"");
-    if (pos != std::string::npos) {
-        auto colon = body.find(':', pos);
-        if (colon != std::string::npos) {
-            int docId = 0;
-            std::istringstream iss(body.substr(colon + 1));
-            if (iss >> docId && docId > 0) {
-                tombstones_.markDeleted(docId);
-                return "{\"status\":\"ok\",\"action\":\"deleted\",\"docId\":" + std::to_string(docId) + "}";
-            }
-        }
+    int docId = extractJsonInt(body, "docId");
+    if (docId > 0) {
+        tombstones_.markDeleted(docId);
+        metadataIndex_.deleteDocument(docId);
+        engine_.clearCache();
+        return "{\"status\":\"ok\",\"action\":\"deleted\",\"docId\":" + std::to_string(docId) + "}";
     }
     return "{\"error\":\"Invalid docId payload for deletion\"}";
 }

@@ -12,9 +12,22 @@
 class MetadataBitset {
 public:
     MetadataBitset() = default;
-    explicit MetadataBitset(size_t numBits) : bits_((numBits + 63) / 64, 0), size_(numBits) {}
+    explicit MetadataBitset(size_t numBits, bool setAll = false) : bits_((numBits + 63) / 64, setAll ? ~0ULL : 0), size_(numBits), isMatchAll_(false) {
+        if (setAll && numBits % 64 != 0) {
+            bits_.back() &= (1ULL << (numBits % 64)) - 1;
+        }
+    }
+
+    static MetadataBitset matchAll() {
+        MetadataBitset b;
+        b.isMatchAll_ = true;
+        return b;
+    }
+
+    bool isMatchAll() const { return isMatchAll_; }
 
     void set(size_t index) {
+        if (isMatchAll_) return;
         if (index >= size_) {
             size_ = index + 1;
             bits_.resize((size_ + 63) / 64, 0);
@@ -29,11 +42,14 @@ public:
     }
 
     bool test(size_t index) const {
+        if (isMatchAll_) return true;
         if (index >= size_) return false;
         return (bits_[index / 64] & (1ULL << (index % 64))) != 0;
     }
 
     MetadataBitset bitwiseAnd(const MetadataBitset& other) const {
+        if (isMatchAll_) return other;
+        if (other.isMatchAll_) return *this;
         size_t minSize = std::min(size_, other.size_);
         MetadataBitset result(minSize);
         size_t words = (minSize + 63) / 64;
@@ -44,6 +60,7 @@ public:
     }
 
     MetadataBitset bitwiseOr(const MetadataBitset& other) const {
+        if (isMatchAll_ || other.isMatchAll_) return matchAll();
         size_t maxSize = std::max(size_, other.size_);
         MetadataBitset result(maxSize);
         size_t words = (maxSize + 63) / 64;
@@ -56,6 +73,7 @@ public:
     }
 
     size_t count() const {
+        if (isMatchAll_) return SIZE_MAX;
         size_t total = 0;
         for (uint64_t w : bits_) {
             total += __builtin_popcountll(w);
@@ -64,6 +82,7 @@ public:
     }
 
     bool empty() const {
+        if (isMatchAll_) return false;
         for (uint64_t w : bits_) {
             if (w != 0) return false;
         }
@@ -75,6 +94,7 @@ public:
 private:
     std::vector<uint64_t> bits_;
     size_t size_{0};
+    bool isMatchAll_{false};
 };
 
 // DocumentMetadata — Structured key-value fields per document.
