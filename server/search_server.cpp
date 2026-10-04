@@ -286,856 +286,1100 @@ void SearchServer::handleClient(int clientFd) {
 
 std::string SearchServer::handleWebUI() {
     std::string html = R"rawhtml(<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Adaptive Search Engine</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --g-bg: #202124;
-    --g-surface: #303134;
-    --g-surface-hover: #3c4043;
-    --g-border: #3c4043;
-    --g-border-subtle: #5f6368;
-    --g-text: #e8eaed;
-    --g-text-muted: #9aa0a6;
-    --g-text-snippet: #bdc1c6;
-    --g-link: #8ab4f8;
-    --g-link-visited: #c58af9;
-    --g-accent: #8ab4f8;
-    --g-accent-green: #81c995;
-    --g-accent-yellow: #fdd663;
-    --g-accent-red: #f28b82;
-    --g-badge-bg: #303134;
-    --font-main: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-body: 'Roboto', -apple-system, sans-serif;
-    --font-mono: 'Roboto Mono', 'SF Mono', Consolas, monospace;
+  :root[data-theme="dark"] {
+    --bg: #202124;
+    --surface: #303134;
+    --surface-hover: #3c4043;
+    --border: #3c4043;
+    --border-light: #5f6368;
+    --text: #e8eaed;
+    --text-muted: #9aa0a6;
+    --text-snippet: #bdc1c6;
+    --link: #8ab4f8;
+    --link-hover: #aecbfa;
+    --accent: #8ab4f8;
+    --accent-green: #81c995;
+    --accent-yellow: #fdd663;
+    --accent-red: #f28b82;
+    --shadow: 0 1px 6px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.6);
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff;
+    --surface: #f8f9fa;
+    --surface-hover: #f1f3f4;
+    --border: #dfe1e5;
+    --border-light: #dadce0;
+    --text: #202124;
+    --text-muted: #70757a;
+    --text-snippet: #4d5156;
+    --link: #1a0dab;
+    --link-hover: #15098a;
+    --accent: #1a73e8;
+    --accent-green: #137333;
+    --accent-yellow: #ea8600;
+    --accent-red: #d93025;
+    --shadow: 0 1px 6px rgba(32,33,36,0.18);
+    --shadow-lg: 0 8px 24px rgba(32,33,36,0.18);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background-color: var(--g-bg);
-    color: var(--g-text);
-    font-family: var(--font-body);
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: 'Roboto', -apple-system, sans-serif;
     font-size: 14px;
     line-height: 1.5;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    overflow-x: hidden;
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  /* Shared Components */
+  .logo-text {
+    font-family: 'Google Sans', sans-serif;
+    font-weight: 500;
+    user-select: none;
+    letter-spacing: -0.5px;
+  }
+  .c-blue { color: #4285f4; }
+  .c-red { color: #ea4335; }
+  .c-yellow { color: #fbbc05; }
+  .c-green { color: #34a853; }
+  [data-theme="dark"] .c-blue { color: #8ab4f8; }
+  [data-theme="dark"] .c-red { color: #f28b82; }
+  [data-theme="dark"] .c-yellow { color: #fdd663; }
+  [data-theme="dark"] .c-green { color: #81c995; }
+
+  /* ── VIEW 1: GOOGLE HOME VIEW ───────────────────────────────────────── */
+  #homeView {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  .home-header {
+    position: absolute;
+    top: 16px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .home-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 650px;
+    width: 100%;
+    margin-top: -60px;
+  }
+  .home-logo {
+    font-size: 56px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .home-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-family: 'Google Sans', sans-serif;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .version-tag {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-family: 'Roboto Mono', monospace;
+  }
+
+  .home-omnibar-box {
+    width: 100%;
+    position: relative;
+    margin-bottom: 24px;
+  }
+  .home-omnibar {
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    height: 48px;
+    padding: 0 18px;
+    box-shadow: var(--shadow);
+    transition: all 0.2s ease;
+  }
+  .home-omnibar:hover, .home-omnibar.focused {
+    background: var(--surface-hover);
+    border-color: transparent;
+    box-shadow: var(--shadow-lg);
+  }
+  .home-omnibar.focused {
+    border-radius: 24px 24px 0 0;
+  }
+  .home-omnibar input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 16px;
+    color: var(--text);
+    font-family: 'Roboto', sans-serif;
+    padding: 0 12px;
+  }
+  .home-omnibar input::placeholder { color: var(--text-muted); }
+
+  .home-buttons {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .g-action-btn {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 18px;
+    font-family: 'Google Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .g-action-btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-light);
+    transform: translateY(-1px);
+  }
+
+  .sample-chips {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .sample-chip {
+    padding: 4px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sample-chip:hover {
+    background: var(--surface-hover);
+    color: var(--link);
+    border-color: var(--accent);
+  }
+
+  .home-footer-chips {
+    position: absolute;
+    bottom: 20px;
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    font-family: 'Roboto Mono', monospace;
+    color: var(--text-muted);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .tech-pill {
+    background: var(--surface);
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+
+  /* ── VIEW 2: GOOGLE RESULTS VIEW ────────────────────────────────────── */
+  #resultsView {
+    display: none;
+    flex-direction: column;
+    flex: 1;
   }
   
-  /* Top Bar */
-  header.g-header {
+  header.res-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 12px 24px;
-    border-bottom: 1px solid var(--g-border);
+    border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
-    background-color: var(--g-bg);
+    background: var(--bg);
     z-index: 100;
   }
-  .g-header-left {
+  .res-header-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 24px;
     flex: 1;
-    max-width: 780px;
+    max-width: 820px;
   }
-  .g-logo {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-family: var(--font-main);
-    font-size: 20px;
-    font-weight: 500;
-    color: #fff;
+  .res-logo {
+    font-size: 24px;
     cursor: pointer;
     white-space: nowrap;
-    user-select: none;
   }
-  .g-logo .logo-blue { color: #8ab4f8; }
-  .g-logo .logo-red { color: #f28b82; }
-  .g-logo .logo-yellow { color: #fdd663; }
-  .g-logo .logo-green { color: #81c995; }
-  .g-logo .logo-badge {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 2px 6px;
-    background: #3c4043;
-    border-radius: 4px;
-    color: #9aa0a6;
-    margin-left: 4px;
-    font-family: var(--font-mono);
-  }
-
-  /* Omnibar */
-  .g-omnibar-wrapper {
+  
+  .res-omnibar-box {
     position: relative;
     flex: 1;
   }
-  .g-omnibar {
+  .res-omnibar {
     display: flex;
     align-items: center;
-    background: var(--g-surface);
-    border: 1px solid transparent;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 24px;
-    padding: 0 16px;
     height: 44px;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.28);
-    transition: background 0.15s, box-shadow 0.15s, border-radius 0.15s;
+    padding: 0 16px;
+    box-shadow: var(--shadow);
+    transition: all 0.15s;
   }
-  .g-omnibar:hover {
-    background: var(--g-surface-hover);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.38);
+  .res-omnibar:hover, .res-omnibar.focused {
+    background: var(--surface-hover);
+    box-shadow: var(--shadow-lg);
   }
-  .g-omnibar.focused {
-    background: var(--g-surface);
-    border-color: transparent;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-    border-radius: 24px 24px 0 0;
+  .res-omnibar.focused {
+    border-radius: 20px 20px 0 0;
   }
-  .g-search-icon {
-    width: 18px;
-    height: 18px;
-    fill: var(--g-text-muted);
-    margin-right: 12px;
-    flex-shrink: 0;
-  }
-  .g-search-input {
+  .res-omnibar input {
     flex: 1;
     background: transparent;
     border: none;
     outline: none;
-    color: var(--g-text);
     font-size: 15px;
-    font-family: var(--font-body);
+    color: var(--text);
+    padding: 0 10px;
   }
-  .g-search-input::placeholder {
-    color: var(--g-text-muted);
-  }
-  .g-clear-btn {
-    background: none;
-    border: none;
-    color: var(--g-text-muted);
-    cursor: pointer;
-    font-size: 16px;
-    padding: 4px 8px;
-    display: none;
-  }
-  .g-clear-btn:hover { color: var(--g-text); }
 
-  /* Autocomplete dropdown */
-  .g-suggest-dropdown {
+  /* Autocomplete Dropdown */
+  .suggest-menu {
     position: absolute;
-    top: 44px;
+    top: 100%;
     left: 0;
     right: 0;
-    background: var(--g-surface);
-    border-radius: 0 0 24px 24px;
-    box-shadow: 0 8px 16px rgba(0,0,0,0.5);
-    overflow: hidden;
+    background: var(--surface);
+    border-radius: 0 0 20px 20px;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+    border-top: none;
     z-index: 1000;
+    overflow: hidden;
     display: none;
-    border-top: 1px solid var(--g-border);
   }
-  .g-suggest-item {
+  .suggest-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 18px;
+    padding: 9px 18px;
     cursor: pointer;
     font-size: 14px;
-    color: var(--g-text);
+    color: var(--text);
   }
-  .g-suggest-item:hover, .g-suggest-item.active {
-    background: var(--g-surface-hover);
+  .suggest-row:hover, .suggest-row.active {
+    background: var(--surface-hover);
   }
-  .g-suggest-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .g-suggest-left svg {
-    width: 14px;
-    height: 14px;
-    fill: var(--g-text-muted);
-  }
-  .g-suggest-freq {
+  .suggest-row .match-text b { color: var(--accent); }
+  .suggest-row .freq-tag {
     font-size: 11px;
-    color: var(--g-text-muted);
-    font-family: var(--font-mono);
-  }
-
-  /* Header Right */
-  .g-header-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .g-telemetry-chip {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    background: rgba(129, 201, 149, 0.12);
-    border: 1px solid rgba(129, 201, 149, 0.3);
-    border-radius: 16px;
-    font-size: 12px;
-    font-family: var(--font-mono);
-    color: var(--g-accent-green);
-  }
-  .g-pulse-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--g-accent-green);
-    box-shadow: 0 0 6px var(--g-accent-green);
+    font-family: 'Roboto Mono', monospace;
+    color: var(--text-muted);
   }
 
   /* Navigation Tabs */
-  .g-nav-tabs {
+  .res-tabs {
     display: flex;
     gap: 4px;
-    padding: 0 24px;
-    background: var(--g-bg);
-    border-bottom: 1px solid var(--g-border);
+    padding: 0 160px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
     overflow-x: auto;
-    scrollbar-width: none;
   }
-  .g-nav-tab {
+  .res-tab {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 10px 14px;
-    color: var(--g-text-muted);
-    font-family: var(--font-main);
+    padding: 11px 16px;
+    color: var(--text-muted);
+    font-family: 'Google Sans', sans-serif;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     border-bottom: 3px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
-    white-space: nowrap;
+    transition: all 0.15s;
     user-select: none;
+    white-space: nowrap;
   }
-  .g-nav-tab:hover {
-    color: var(--g-text);
-  }
-  .g-nav-tab.active {
-    color: var(--g-accent);
-    border-bottom-color: var(--g-accent);
+  .res-tab:hover { color: var(--text); }
+  .res-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
   }
 
-  /* Filter Toolbar */
-  .g-filter-bar {
+  /* Filter Bar */
+  .res-filters {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 24px;
-    background: var(--g-bg);
+    padding: 8px 160px;
     border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: var(--bg);
     flex-wrap: wrap;
   }
-  .g-filter-label {
+  .filter-label {
     font-size: 12px;
-    color: var(--g-text-muted);
     text-transform: uppercase;
+    color: var(--text-muted);
+    font-family: 'Google Sans', sans-serif;
     font-weight: 500;
-    margin-right: 4px;
-    font-family: var(--font-main);
   }
-  .g-filter-pill {
-    padding: 4px 10px;
-    border-radius: 16px;
+  .filter-chip {
+    padding: 3px 10px;
+    border-radius: 14px;
     font-size: 12px;
-    color: var(--g-text-muted);
-    background: var(--g-surface);
-    border: 1px solid var(--g-border);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
     cursor: pointer;
     transition: all 0.15s;
-    user-select: none;
   }
-  .g-filter-pill:hover {
-    background: var(--g-surface-hover);
-    color: var(--g-text);
+  .filter-chip:hover {
+    background: var(--surface-hover);
+    color: var(--text);
   }
-  .g-filter-pill.active {
+  .filter-chip.active {
     background: rgba(138, 180, 248, 0.15);
-    border-color: var(--g-accent);
-    color: var(--g-accent);
+    border-color: var(--accent);
+    color: var(--accent);
     font-weight: 500;
   }
 
-  /* Main Container (Two Columns) */
-  .g-layout {
+  /* Results 2-Column Layout */
+  .res-layout {
     max-width: 1280px;
     width: 100%;
     margin: 0 auto;
-    padding: 16px 24px 48px 24px;
+    padding: 16px 24px 48px 160px;
     display: grid;
-    grid-template-columns: minmax(0, 680px) 380px;
-    gap: 40px;
+    grid-template-columns: 652px 380px;
+    gap: 50px;
     flex: 1;
   }
 
-  /* Left Column: Results */
-  .g-results-pane {
-    display: flex;
-    flex-direction: column;
-  }
-  .g-stats-line {
+  .res-stats-line {
     font-size: 12px;
-    color: var(--g-text-muted);
-    margin-bottom: 18px;
-    font-family: var(--font-mono);
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    font-family: 'Roboto Mono', monospace;
   }
 
-  .g-results-list {
+  .res-list {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 26px;
   }
 
-  .g-result-item {
+  .res-card {
     display: flex;
     flex-direction: column;
   }
-  .g-result-meta {
+  .res-breadcrumb {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
     margin-bottom: 4px;
   }
-  .g-result-favicon {
-    width: 16px;
-    height: 16px;
+  .res-favicon {
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: var(--g-surface-hover);
+    background: var(--surface-hover);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 9px;
-    font-weight: 700;
-    color: var(--g-accent);
+    font-size: 10px;
+    font-weight: bold;
+    color: var(--accent);
   }
-  .g-result-source {
-    font-size: 12px;
-    color: var(--g-text-muted);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .g-result-category {
+  .res-cat-badge {
     padding: 1px 6px;
+    background: var(--surface);
     border-radius: 4px;
-    background: var(--g-surface);
+    font-family: 'Roboto Mono', monospace;
     font-size: 11px;
-    color: #9aa0a6;
-    font-family: var(--font-mono);
+    color: var(--text-muted);
   }
-  .g-result-title {
-    font-family: var(--font-main);
-    font-size: 18px;
-    font-weight: 400;
-    color: var(--g-link);
+  .res-title {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 19px;
+    color: var(--link);
     text-decoration: none;
+    line-height: 1.35;
     margin-bottom: 6px;
     cursor: pointer;
-    line-height: 1.35;
   }
-  .g-result-title:hover {
-    text-decoration: underline;
-  }
-  .g-result-snippet {
+  .res-title:hover { text-decoration: underline; color: var(--link-hover); }
+  .res-snippet {
     font-size: 14px;
-    color: var(--g-text-snippet);
+    color: var(--text-snippet);
     line-height: 1.58;
     margin-bottom: 8px;
   }
-  .g-result-snippet b {
-    color: #fff;
+  .res-snippet b {
+    color: var(--text);
     font-weight: 600;
   }
 
-  .g-chips-row {
+  .res-chips {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
   }
-  .g-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
+  .meta-tag {
     font-size: 11px;
-    font-family: var(--font-mono);
+    font-family: 'Roboto Mono', monospace;
     padding: 2px 8px;
     border-radius: 12px;
-    background: var(--g-surface);
-    color: var(--g-text-muted);
-    border: 1px solid var(--g-border);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
   }
-  .g-chip.score { color: var(--g-accent); border-color: rgba(138, 180, 248, 0.3); }
-  .g-chip.year { color: var(--g-accent-yellow); border-color: rgba(253, 214, 99, 0.3); }
+  .meta-tag.score { color: var(--accent); border-color: rgba(138, 180, 248, 0.3); }
+  .meta-tag.year { color: var(--accent-yellow); border-color: rgba(253, 214, 99, 0.3); }
 
-  .g-feedback-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    font-family: var(--font-main);
-    padding: 2px 10px;
-    border-radius: 12px;
+  .feedback-btn {
+    margin-left: auto;
     background: transparent;
-    border: 1px solid var(--g-border);
-    color: var(--g-text-muted);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
     cursor: pointer;
     transition: all 0.15s;
-    margin-left: auto;
   }
-  .g-feedback-btn:hover {
-    border-color: var(--g-accent);
-    color: var(--g-accent);
-    background: rgba(138, 180, 248, 0.08);
+  .feedback-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
-  .g-feedback-btn.clicked {
-    border-color: var(--g-accent-green);
-    color: var(--g-accent-green);
-    background: rgba(129, 201, 149, 0.15);
+  .feedback-btn.clicked {
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+    background: rgba(129, 201, 149, 0.12);
   }
 
-  /* Right Column: Knowledge Panel / Telemetry & Ingestion */
-  .g-sidebar-pane {
+  /* Knowledge Panel / Telemetry Sidebar */
+  .res-sidebar {
     display: flex;
     flex-direction: column;
     gap: 20px;
   }
-
-  .g-card {
-    background: var(--g-surface);
-    border: 1px solid var(--g-border);
+  .kg-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 18px;
+    padding: 20px;
+    box-shadow: var(--shadow);
   }
-  .g-card-title {
-    font-family: var(--font-main);
-    font-size: 14px;
-    font-weight: 500;
-    color: #fff;
-    margin-bottom: 12px;
+  .kg-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    margin-bottom: 14px;
   }
-  .g-card-title .card-sub {
+  .kg-title {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .kg-sub {
     font-size: 11px;
-    font-family: var(--font-mono);
-    color: var(--g-text-muted);
-    font-weight: normal;
+    font-family: 'Roboto Mono', monospace;
+    color: var(--text-muted);
   }
 
-  .g-telemetry-grid {
+  .telemetry-boxes {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-    margin-bottom: 14px;
+    margin-bottom: 16px;
   }
-  .g-metric-box {
-    background: rgba(0,0,0,0.25);
-    border: 1px solid rgba(255,255,255,0.06);
+  .tel-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 10px;
   }
-  .g-metric-label {
+  .tel-label {
     font-size: 11px;
-    color: var(--g-text-muted);
-    font-family: var(--font-main);
+    color: var(--text-muted);
     margin-bottom: 2px;
   }
-  .g-metric-value {
+  .tel-val {
     font-size: 16px;
     font-weight: 600;
-    font-family: var(--font-mono);
-    color: var(--g-text);
+    font-family: 'Roboto Mono', monospace;
+    color: var(--text);
   }
 
-  .g-pipeline-flow {
+  .ir-flow {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     font-size: 12px;
-    font-family: var(--font-mono);
-    color: var(--g-text-muted);
-    background: rgba(0,0,0,0.25);
+    font-family: 'Roboto Mono', monospace;
+    color: var(--text-muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 10px;
+    padding: 12px;
   }
-  .g-flow-step {
+  .ir-step {
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
-  .g-flow-step.active {
-    color: var(--g-accent);
+  .ir-step.active {
+    color: var(--accent);
     font-weight: 500;
   }
 
-  /* Ingestion Card */
-  .g-ingest-form {
+  /* Slide-Over Drawer for Document Ingestion */
+  .drawer-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(2px);
+    z-index: 2000;
+    display: none;
+  }
+  .drawer-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 440px;
+    max-width: 100%;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 28px;
+    z-index: 2001;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 18px;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: var(--shadow-lg);
   }
-  .g-form-row {
+  .drawer-panel.open {
+    transform: translateX(0);
+  }
+  .drawer-header {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .drawer-title {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 18px;
+    font-weight: 500;
+  }
+  .drawer-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .drawer-close:hover { color: var(--text); }
+
+  .ingest-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ingest-field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-family: 'Google Sans', sans-serif;
   }
   .g-input {
-    background: rgba(0,0,0,0.25);
-    border: 1px solid var(--g-border);
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: var(--g-text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
     font-size: 13px;
-    font-family: var(--font-body);
     outline: none;
   }
-  .g-input:focus { border-color: var(--g-accent); }
-  .g-input.id-input { width: 90px; font-family: var(--font-mono); }
-  .g-input.cat-input { width: 110px; }
-  .g-textarea {
-    width: 100%;
-    min-height: 70px;
-    resize: vertical;
-  }
-  .g-btn {
-    background: var(--g-accent);
+  .g-input:focus { border-color: var(--accent); }
+  .g-textarea { min-height: 120px; resize: vertical; font-family: 'Roboto', sans-serif; }
+  .primary-btn {
+    background: var(--accent);
     color: #202124;
     border: none;
-    border-radius: 6px;
-    padding: 8px 14px;
-    font-family: var(--font-main);
-    font-size: 13px;
+    border-radius: 8px;
+    padding: 11px 20px;
+    font-family: 'Google Sans', sans-serif;
+    font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s;
-    align-self: flex-start;
+    transition: all 0.15s;
   }
-  .g-btn:hover { background: #aecbfa; }
+  .primary-btn:hover { background: #aecbfa; }
 
-  /* Empty State */
-  .g-empty-state {
-    padding: 40px 0;
-    text-align: center;
-    color: var(--g-text-muted);
+  /* Utility icons */
+  .icon-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text);
+    transition: all 0.15s;
   }
-  .g-empty-title {
-    font-family: var(--font-main);
-    font-size: 16px;
-    margin-bottom: 6px;
-    color: var(--g-text);
-  }
+  .icon-btn:hover { background: var(--surface-hover); }
 
-  @media (max-width: 900px) {
-    .g-layout {
-      grid-template-columns: 1fr;
-    }
+  @media (max-width: 1100px) {
+    .res-tabs, .res-filters, .res-layout { padding-left: 24px; padding-right: 24px; }
+    .res-layout { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 
-<header class="g-header">
-  <div class="g-header-left">
-    <div class="g-logo" onclick="resetSearch()">
-      <span class="logo-blue">A</span><span class="logo-red">d</span><span class="logo-yellow">a</span><span class="logo-blue">p</span><span class="logo-green">t</span><span class="logo-red">i</span><span class="logo-blue">v</span><span class="logo-green">e</span>
-      <span style="color:#e8eaed; margin-left:4px; font-weight:400;">Search</span>
-      <span class="logo-badge" id="engineVersion">v0.3.0</span>
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- VIEW 1: GOOGLE SEARCH HOME CANVAS                                  -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div id="homeView">
+  <div class="home-header">
+    <button class="g-action-btn" onclick="openDrawer()">+ Ingest Document</button>
+    <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme" id="themeBtnHome">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
+    </button>
+  </div>
+
+  <div class="home-center">
+    <div class="home-logo logo-text">
+      <span class="c-blue">A</span><span class="c-red">d</span><span class="c-yellow">a</span><span class="c-blue">p</span><span class="c-green">t</span><span class="c-red">i</span><span class="c-blue">v</span><span class="c-green">e</span>
+      <span style="margin-left:8px; font-weight:400;">Search</span>
+    </div>
+    <div class="home-subtitle">
+      <span>Neural Hybrid & Stage-2 IR Engine</span>
+      <span class="version-tag" id="homeVersionTag">v0.3.0</span>
     </div>
 
-    <div class="g-omnibar-wrapper">
-      <div class="g-omnibar" id="omnibar">
-        <svg class="g-search-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-        <input type="text" id="queryInput" class="g-search-input" placeholder="Search across documents or query terms (/ to focus)..." autofocus autocomplete="off" spellcheck="false">
-        <button class="g-clear-btn" id="clearBtn" onclick="clearSearch()">✕</button>
+    <div class="home-omnibar-box">
+      <div class="home-omnibar" id="homeOmnibar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--text-muted)"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" id="homeInput" placeholder="Search across documents or technical terms (/ to focus)..." autocomplete="off" spellcheck="false">
       </div>
-      <div class="g-suggest-dropdown" id="suggestDropdown"></div>
+      <div class="suggest-menu" id="homeSuggestMenu"></div>
+    </div>
+
+    <div class="home-buttons">
+      <button class="g-action-btn" onclick="triggerSearchFromHome()">Adaptive Search</button>
+      <button class="g-action-btn" onclick="feelingLucky()">I'm Feeling Lucky</button>
+    </div>
+
+    <div class="sample-chips">
+      <span>Try searching:</span>
+      <span class="sample-chip" onclick="searchSample('machine learning')">machine learning</span>
+      <span class="sample-chip" onclick="searchSample('neural networks')">neural networks</span>
+      <span class="sample-chip" onclick="searchSample('cloud microservices')">cloud microservices</span>
+      <span class="sample-chip" onclick="searchSample('cryptography')">cryptography</span>
+      <span class="sample-chip" onclick="searchSample('genomic sequencing')">genomic sequencing</span>
     </div>
   </div>
 
-  <div class="g-header-right">
-    <div class="g-telemetry-chip">
-      <div class="g-pulse-dot"></div>
-      <span id="headerDocCount">30 docs indexed</span>
-    </div>
+  <div class="home-footer-chips">
+    <span class="tech-pill">HNSW Graph (M=16, ef=200)</span>
+    <span class="tech-pill">BM25 + WAND Pruning</span>
+    <span class="tech-pill">SIMD SQ8 Quantization</span>
+    <span class="tech-pill">Cross-Encoder Neural L2</span>
+    <span class="tech-pill">Prefix Trie &lt;6 µs</span>
+    <span class="tech-pill">LSM WAL Crash Recovery</span>
   </div>
-</header>
-
-<div class="g-nav-tabs">
-  <div class="g-nav-tab active" data-mode="hybrid">All (Hybrid RRF)</div>
-  <div class="g-nav-tab" data-mode="rerank">Stage-2 Neural (Cross-Encoder)</div>
-  <div class="g-nav-tab" data-mode="wand">WAND Top-K Pruned</div>
-  <div class="g-nav-tab" data-mode="bm25">BM25 Lexical</div>
-  <div class="g-nav-tab" data-mode="phrase">Exact Phrases</div>
 </div>
 
-<div class="g-filter-bar">
-  <span class="g-filter-label">Category:</span>
-  <span class="g-filter-pill active" data-filter="">All</span>
-  <span class="g-filter-pill" data-filter="category:AI">AI & ML</span>
-  <span class="g-filter-pill" data-filter="category:Cloud">Cloud</span>
-  <span class="g-filter-pill" data-filter="category:Security">Security</span>
-  <span class="g-filter-pill" data-filter="category:Genomics">Genomics</span>
-  <span class="g-filter-pill" data-filter="category:Quantum">Quantum</span>
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- VIEW 2: GOOGLE SEARCH RESULTS PAGE                                  -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div id="resultsView">
+  <header class="res-header">
+    <div class="res-header-left">
+      <div class="res-logo logo-text" onclick="showHomeView()">
+        <span class="c-blue">A</span><span class="c-red">d</span><span class="c-yellow">a</span><span class="c-blue">p</span><span class="c-green">t</span><span class="c-red">i</span><span class="c-blue">v</span><span class="c-green">e</span>
+      </div>
 
-  <span class="g-filter-label" style="margin-left:16px;">Year:</span>
-  <span class="g-filter-pill" data-filter-year="year:>=2024">≥ 2024</span>
-  <span class="g-filter-pill" data-filter-year="year:>=2023">≥ 2023</span>
+      <div class="res-omnibar-box">
+        <div class="res-omnibar" id="resOmnibar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--text-muted)"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="text" id="resInput" placeholder="Search across documents..." autocomplete="off" spellcheck="false">
+          <button style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;" onclick="clearResSearch()">✕</button>
+        </div>
+        <div class="suggest-menu" id="resSuggestMenu"></div>
+      </div>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:12px;">
+      <button class="g-action-btn" onclick="openDrawer()">+ Ingest</button>
+      <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme" id="themeBtnRes">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Google Search Tabs -->
+  <div class="res-tabs">
+    <div class="res-tab active" data-mode="hybrid">All (Hybrid RRF)</div>
+    <div class="res-tab" data-mode="rerank">Stage-2 Neural (Cross-Encoder)</div>
+    <div class="res-tab" data-mode="wand">WAND Top-K Pruned</div>
+    <div class="res-tab" data-mode="bm25">BM25 Lexical</div>
+    <div class="res-tab" data-mode="phrase">Exact Phrases</div>
+  </div>
+
+  <!-- Filter Toolbar -->
+  <div class="res-filters">
+    <span class="filter-label">Category:</span>
+    <span class="filter-chip active" data-cat="">All</span>
+    <span class="filter-chip" data-cat="category:AI">AI & ML</span>
+    <span class="filter-chip" data-cat="category:Cloud">Cloud</span>
+    <span class="filter-chip" data-cat="category:Security">Security</span>
+    <span class="filter-chip" data-cat="category:Genomics">Genomics</span>
+    <span class="filter-chip" data-cat="category:Quantum">Quantum</span>
+
+    <span class="filter-label" style="margin-left:14px;">Year:</span>
+    <span class="filter-chip" data-yr="year:>=2024">≥ 2024</span>
+    <span class="filter-chip" data-yr="year:>=2023">≥ 2023</span>
+  </div>
+
+  <!-- 2-Column Main Results Area -->
+  <main class="res-layout">
+    <section>
+      <div class="res-stats-line" id="resStats">Searching...</div>
+      <div class="res-list" id="resList"></div>
+    </section>
+
+    <!-- Knowledge Graph & Telemetry Card -->
+    <aside class="res-sidebar">
+      <div class="kg-card">
+        <div class="kg-header">
+          <span class="kg-title">IR Engine Telemetry</span>
+          <span class="kg-sub" id="sideLatency">— µs</span>
+        </div>
+
+        <div class="telemetry-boxes">
+          <div class="tel-box">
+            <div class="tel-label">Server Latency</div>
+            <div class="tel-val" id="valServerLat">—</div>
+          </div>
+          <div class="tel-box">
+            <div class="tel-label">Roundtrip</div>
+            <div class="tel-val" id="valClientLat">—</div>
+          </div>
+          <div class="tel-box">
+            <div class="tel-label">Retrieval Mode</div>
+            <div class="tel-val" id="valMode" style="font-size:13px; color:var(--accent);">Hybrid</div>
+          </div>
+          <div class="tel-box">
+            <div class="tel-label">Corpus Size</div>
+            <div class="tel-val" id="valDocs">30</div>
+          </div>
+        </div>
+
+        <div class="ir-flow">
+          <div class="ir-step" id="flowToken"><span>1. Tokenizer & Stemmer</span><span>✓</span></div>
+          <div class="ir-step" id="flowL1"><span>2. Stage-1 Lexical + HNSW</span><span>✓</span></div>
+          <div class="ir-step" id="flowRRF"><span>3. Reciprocal Rank Fusion</span><span>✓</span></div>
+          <div class="ir-step" id="flowL2"><span>4. Stage-2 Cross-Encoder</span><span id="flowL2Status">Standby</span></div>
+          <div class="ir-step" id="flowFilter"><span>5. Bitset Attribute Filter</span><span id="flowFilterStatus">Pass</span></div>
+        </div>
+      </div>
+    </aside>
+  </main>
 </div>
 
-<main class="g-layout">
-  <!-- Left: Results List -->
-  <section class="g-results-pane">
-    <div class="g-stats-line" id="statsLine">Type a query to search the indexed corpus</div>
-    <div class="g-results-list" id="resultsList">
-      <div class="g-empty-state">
-        <div class="g-empty-title">Instant Multi-Stage IR Search</div>
-        <p>Type keywords like <code>machine learning</code>, <code>cloud microservices</code>, <code>neural networks</code> to test real-time retrieval.</p>
-      </div>
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE-OVER INGESTION DRAWER                                         -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer-panel" id="drawerPanel">
+  <div class="drawer-header">
+    <span class="drawer-title">Real-Time Document Ingestion</span>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <p style="font-size:13px; color:var(--text-muted);">Insert new text or paste extracted PDF passages. The document is indexed live into the inverted index, prefix trie, and WAL.</p>
+  <form id="ingestDrawerForm" style="display:flex; flex-direction:column; gap:14px;">
+    <div class="ingest-field">
+      <label>Document ID</label>
+      <input type="number" id="drawerDocId" class="g-input" value="1001" required>
     </div>
-  </section>
-
-  <!-- Right: Telemetry & Ingestion Card -->
-  <aside class="g-sidebar-pane">
-    <div class="g-card">
-      <div class="g-card-title">
-        <span>Execution Telemetry</span>
-        <span class="card-sub" id="telemetryLatency">— µs</span>
-      </div>
-      <div class="g-telemetry-grid">
-        <div class="g-metric-box">
-          <div class="g-metric-label">Server Latency</div>
-          <div class="g-metric-value" id="statLatency">—</div>
-        </div>
-        <div class="g-metric-box">
-          <div class="g-metric-label">Client Latency</div>
-          <div class="g-metric-value" id="statClientLatency">—</div>
-        </div>
-        <div class="g-metric-box">
-          <div class="g-metric-label">Active Mode</div>
-          <div class="g-metric-value" id="statMode" style="font-size:13px; color:var(--g-accent);">Hybrid</div>
-        </div>
-        <div class="g-metric-box">
-          <div class="g-metric-label">Total Index</div>
-          <div class="g-metric-value" id="statDocs">30</div>
-        </div>
-      </div>
-
-      <div class="g-pipeline-flow">
-        <div class="g-flow-step" id="stepToken"><span>1. Tokenizer & Stemmer</span><span>✓</span></div>
-        <div class="g-flow-step" id="stepL1"><span>2. Stage-1 Lexical + HNSW</span><span>✓</span></div>
-        <div class="g-flow-step" id="stepRRF"><span>3. Reciprocal Rank Fusion</span><span>✓</span></div>
-        <div class="g-flow-step" id="stepL2"><span>4. Stage-2 Neural Rerank</span><span id="stepL2Status">Standby</span></div>
-        <div class="g-flow-step" id="stepFilter"><span>5. Bitset Attribute Filter</span><span id="stepFilterStatus">Pass</span></div>
-      </div>
+    <div class="ingest-field">
+      <label>Category Attribute</label>
+      <input type="text" id="drawerDocCat" class="g-input" value="AI" required>
     </div>
-
-    <!-- Live Document Ingestion Panel -->
-    <div class="g-card">
-      <div class="g-card-title">
-        <span>Real-Time Index Ingestion</span>
-        <span class="card-sub">LSM WAL</span>
-      </div>
-      <form class="g-ingest-form" id="ingestForm">
-        <div class="g-form-row">
-          <input type="number" id="inDocId" class="g-input id-input" placeholder="Doc ID" value="1001" required>
-          <input type="text" id="inDocCat" class="g-input cat-input" placeholder="Category" value="AI">
-        </div>
-        <textarea id="inDocText" class="g-input g-textarea" placeholder="Paste document content, abstract, or extracted PDF passage..." required></textarea>
-        <button type="submit" class="g-btn">Index Document</button>
-      </form>
+    <div class="ingest-field">
+      <label>Document Content / Passage</label>
+      <textarea id="drawerDocContent" class="g-input g-textarea" placeholder="Paste full document content, abstract, or extracted PDF passage..." required></textarea>
     </div>
-  </aside>
-</main>
+    <button type="submit" class="primary-btn">Index into Corpus</button>
+  </form>
+</div>
 
 <script>
 let currentMode = 'hybrid';
-let activeCategoryFilter = '';
-let activeYearFilter = '';
+let activeCategory = '';
+let activeYear = '';
 let searchDebounce = null;
 let suggestDebounce = null;
-let activeSuggestIndex = -1;
+let activeSuggestIdx = -1;
 
-const queryInput = document.getElementById('queryInput');
-const omnibar = document.getElementById('omnibar');
-const clearBtn = document.getElementById('clearBtn');
-const suggestDropdown = document.getElementById('suggestDropdown');
-const resultsList = document.getElementById('resultsList');
-const statsLine = document.getElementById('statsLine');
+const homeView = document.getElementById('homeView');
+const resultsView = document.getElementById('resultsView');
+const homeInput = document.getElementById('homeInput');
+const resInput = document.getElementById('resInput');
+const homeOmnibar = document.getElementById('homeOmnibar');
+const resOmnibar = document.getElementById('resOmnibar');
+const homeSuggestMenu = document.getElementById('homeSuggestMenu');
+const resSuggestMenu = document.getElementById('resSuggestMenu');
+const resList = document.getElementById('resList');
+const resStats = document.getElementById('resStats');
 
-// Focus shortcut
+// Focus shortcut '/'
 window.addEventListener('keydown', (e) => {
-  if (e.key === '/' && document.activeElement !== queryInput && document.activeElement.tagName !== 'TEXTAREA') {
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
     e.preventDefault();
-    queryInput.focus();
-    queryInput.select();
+    if (resultsView.style.display === 'flex') {
+      resInput.focus();
+      resInput.select();
+    } else {
+      homeInput.focus();
+      homeInput.select();
+    }
   }
 });
 
-async function refreshEngineStatus() {
+// Theme Toggle
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('g-theme', next);
+}
+const savedTheme = localStorage.getItem('g-theme') || 'dark';
+document.documentElement.setAttribute('data-theme', savedTheme);
+
+// State transitions
+function showResultsView() {
+  homeView.style.display = 'none';
+  resultsView.style.display = 'flex';
+}
+function showHomeView() {
+  resultsView.style.display = 'none';
+  homeView.style.display = 'flex';
+  homeInput.value = '';
+  resInput.value = '';
+  homeInput.focus();
+}
+
+// Lucky queries
+const luckyQueries = [
+  'machine learning',
+  'deep learning neural networks',
+  'cloud microservices docker',
+  'quantum computing algorithms',
+  'genomics DNA sequencing',
+  'cybersecurity zero-trust cryptography'
+];
+function feelingLucky() {
+  const randomQ = luckyQueries[Math.floor(Math.random() * luckyQueries.length)];
+  homeInput.value = randomQ;
+  resInput.value = randomQ;
+  showResultsView();
+  executeSearch();
+}
+
+function searchSample(q) {
+  homeInput.value = q;
+  resInput.value = q;
+  showResultsView();
+  executeSearch();
+}
+
+function triggerSearchFromHome() {
+  const q = homeInput.value.trim();
+  if (q) {
+    resInput.value = q;
+    showResultsView();
+    executeSearch();
+  } else {
+    homeInput.focus();
+  }
+}
+
+function clearResSearch() {
+  resInput.value = '';
+  resSuggestMenu.style.display = 'none';
+  executeSearch();
+  resInput.focus();
+}
+
+// Drawer Controls
+function openDrawer() {
+  document.getElementById('drawerOverlay').style.display = 'block';
+  document.getElementById('drawerPanel').classList.add('open');
+}
+function closeDrawer() {
+  document.getElementById('drawerOverlay').style.display = 'none';
+  document.getElementById('drawerPanel').classList.remove('open');
+}
+
+// Status fetch
+async function loadStatus() {
   try {
     const res = await fetch('/health');
     const data = await res.json();
-    document.getElementById('headerDocCount').innerText = `${data.totalDocs} docs indexed`;
-    document.getElementById('statDocs').innerText = data.totalDocs;
-    document.getElementById('engineVersion').innerText = `v${data.version}`;
+    document.getElementById('valDocs').innerText = data.totalDocs;
+    document.getElementById('homeVersionTag').innerText = `v${data.version}`;
   } catch (e) {}
 }
-refreshEngineStatus();
+loadStatus();
 
 // Navigation Tabs
-document.querySelectorAll('.g-nav-tab').forEach(tab => {
+document.querySelectorAll('.res-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.g-nav-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.res-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     currentMode = tab.dataset.mode;
-    document.getElementById('statMode').innerText = tab.innerText.split(' ')[0];
+    document.getElementById('valMode').innerText = tab.innerText.split(' ')[0];
     executeSearch();
   });
 });
 
 // Category Filter Chips
-document.querySelectorAll('.g-filter-pill[data-filter]').forEach(pill => {
-  pill.addEventListener('click', () => {
-    document.querySelectorAll('.g-filter-pill[data-filter]').forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    activeCategoryFilter = pill.dataset.filter;
+document.querySelectorAll('.filter-chip[data-cat]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.filter-chip[data-cat]').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeCategory = chip.dataset.cat;
     executeSearch();
   });
 });
 
 // Year Filter Chips
-document.querySelectorAll('.g-filter-pill[data-filter-year]').forEach(pill => {
-  pill.addEventListener('click', () => {
-    if (pill.classList.contains('active')) {
-      pill.classList.remove('active');
-      activeYearFilter = '';
+document.querySelectorAll('.filter-chip[data-yr]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    if (chip.classList.contains('active')) {
+      chip.classList.remove('active');
+      activeYear = '';
     } else {
-      document.querySelectorAll('.g-filter-pill[data-filter-year]').forEach(p => p.classList.remove('active'));
-      pill.classList.add('active');
-      activeYearFilter = pill.dataset.filterYear;
+      document.querySelectorAll('.filter-chip[data-yr]').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      activeYear = chip.dataset.yr;
     }
     executeSearch();
   });
 });
 
-// Omnibar events
-queryInput.addEventListener('focus', () => {
-  omnibar.classList.add('focused');
-  if (queryInput.value.trim().length >= 2) fetchSuggestions();
-});
-
-queryInput.addEventListener('blur', () => {
-  setTimeout(() => {
-    omnibar.classList.remove('focused');
-    suggestDropdown.style.display = 'none';
-  }, 200);
-});
-
-queryInput.addEventListener('input', () => {
-  const val = queryInput.value;
-  clearBtn.style.display = val.length > 0 ? 'block' : 'none';
-
-  clearTimeout(searchDebounce);
-  searchDebounce = setTimeout(executeSearch, 120);
-
-  clearTimeout(suggestDebounce);
-  suggestDebounce = setTimeout(fetchSuggestions, 60);
-});
-
-queryInput.addEventListener('keydown', (e) => {
-  const items = document.querySelectorAll('.g-suggest-item');
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    if (items.length > 0) {
-      activeSuggestIndex = (activeSuggestIndex + 1) % items.length;
-      updateActiveSuggest(items);
+// Omnibar listeners (Home & Results)
+function bindOmnibar(input, omnibar, menu, isHome) {
+  input.addEventListener('focus', () => {
+    omnibar.classList.add('focused');
+    if (input.value.trim().length >= 2) fetchSuggest(input.value.trim(), menu, input);
+  });
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      omnibar.classList.remove('focused');
+      menu.style.display = 'none';
+    }, 200);
+  });
+  input.addEventListener('input', () => {
+    const q = input.value;
+    if (isHome && q.trim().length > 0) {
+      resInput.value = q;
     }
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    if (items.length > 0) {
-      activeSuggestIndex = (activeSuggestIndex - 1 + items.length) % items.length;
-      updateActiveSuggest(items);
-    }
-  } else if (e.key === 'Enter') {
-    if (activeSuggestIndex >= 0 && items[activeSuggestIndex]) {
-      items[activeSuggestIndex].click();
-    } else {
-      suggestDropdown.style.display = 'none';
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      if (isHome && q.trim().length > 0) {
+        showResultsView();
+        resInput.focus();
+      }
       executeSearch();
-    }
-  } else if (e.key === 'Escape') {
-    suggestDropdown.style.display = 'none';
-  }
-});
+    }, 140);
 
-function updateActiveSuggest(items) {
-  items.forEach((item, idx) => {
-    if (idx === activeSuggestIndex) {
-      item.classList.add('active');
-      queryInput.value = item.dataset.text;
-    } else {
-      item.classList.remove('active');
+    clearTimeout(suggestDebounce);
+    suggestDebounce = setTimeout(() => fetchSuggest(input.value.trim(), menu, input), 60);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      menu.style.display = 'none';
+      if (isHome) {
+        showResultsView();
+        resInput.value = homeInput.value;
+      }
+      executeSearch();
     }
   });
 }
+bindOmnibar(homeInput, homeOmnibar, homeSuggestMenu, true);
+bindOmnibar(resInput, resOmnibar, resSuggestMenu, false);
 
-function clearSearch() {
-  queryInput.value = '';
-  clearBtn.style.display = 'none';
-  suggestDropdown.style.display = 'none';
-  executeSearch();
-  queryInput.focus();
-}
-
-function resetSearch() {
-  queryInput.value = '';
-  clearBtn.style.display = 'none';
-  executeSearch();
-}
-
-// Autocomplete fetch
-async function fetchSuggestions() {
-  const q = queryInput.value.trim();
+async function fetchSuggest(q, menu, targetInput) {
   if (q.length < 2) {
-    suggestDropdown.style.display = 'none';
+    menu.style.display = 'none';
     return;
   }
   try {
-    const res = await fetch(`/suggest?q=${encodeURIComponent(q)}&k=6`);
+    const res = await fetch(`/suggest?q=${encodeURIComponent(q)}&k=5`);
     const data = await res.json();
     if (data.suggestions && data.suggestions.length > 0) {
-      activeSuggestIndex = -1;
-      suggestDropdown.innerHTML = data.suggestions.map(s => `
-        <div class="g-suggest-item" data-text="${s.text}" onclick="chooseSuggestion('${s.text.replace(/'/g, "\\'")}')">
-          <div class="g-suggest-left">
-            <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-            <span>${highlightPrefix(s.text, q)}</span>
-          </div>
-          <span class="g-suggest-freq">${s.frequency}</span>
+      menu.innerHTML = data.suggestions.map(s => `
+        <div class="suggest-row" onclick="selectSuggest('${s.text.replace(/'/g, "\\'")}')">
+          <div class="match-text">🔍 ${highlightPrefix(s.text, q)}</div>
+          <span class="freq-tag">${s.frequency}</span>
         </div>
       `).join('');
-      suggestDropdown.style.display = 'block';
+      menu.style.display = 'block';
     } else {
-      suggestDropdown.style.display = 'none';
+      menu.style.display = 'none';
     }
   } catch (e) {
-    suggestDropdown.style.display = 'none';
+    menu.style.display = 'none';
   }
 }
 
@@ -1146,114 +1390,104 @@ function highlightPrefix(text, prefix) {
   return text;
 }
 
-function chooseSuggestion(text) {
-  queryInput.value = text;
-  suggestDropdown.style.display = 'none';
+function selectSuggest(text) {
+  homeInput.value = text;
+  resInput.value = text;
+  homeSuggestMenu.style.display = 'none';
+  resSuggestMenu.style.display = 'none';
+  showResultsView();
   executeSearch();
 }
 
-// Execute Multi-stage Search
+// Execute Search Engine Query
 async function executeSearch() {
-  const q = queryInput.value.trim();
+  const q = (resultsView.style.display === 'flex' ? resInput.value : homeInput.value).trim();
   if (!q) {
-    resultsList.innerHTML = `
-      <div class="g-empty-state">
-        <div class="g-empty-title">Instant Multi-Stage IR Search</div>
-        <p>Type keywords like <code>machine learning</code>, <code>cloud microservices</code>, <code>neural networks</code> to test real-time retrieval.</p>
-      </div>`;
-    statsLine.innerText = 'Type a query to search the indexed corpus';
-    document.getElementById('statLatency').innerText = '—';
-    document.getElementById('statClientLatency').innerText = '—';
-    document.getElementById('telemetryLatency').innerText = '— µs';
+    showHomeView();
     return;
   }
 
-  // Combine filters
   const filters = [];
-  if (activeCategoryFilter) filters.push(activeCategoryFilter);
-  if (activeYearFilter) filters.push(activeYearFilter);
-  const filterParam = filters.join(',');
+  if (activeCategory) filters.push(activeCategory);
+  if (activeYear) filters.push(activeYear);
+  const filterExpr = filters.join(',');
 
   const t0 = performance.now();
   try {
-    const url = `/search?q=${encodeURIComponent(q)}&mode=${currentMode}&k=10${filterParam ? `&filter=${encodeURIComponent(filterParam)}` : ''}`;
+    const url = `/search?q=${encodeURIComponent(q)}&mode=${currentMode}&k=10${filterExpr ? `&filter=${encodeURIComponent(filterExpr)}` : ''}`;
     const res = await fetch(url);
     const data = await res.json();
-    const clientLatencyMs = (performance.now() - t0).toFixed(1);
+    const clientMs = (performance.now() - t0).toFixed(1);
 
-    // Update telemetry sidebar
-    document.getElementById('statLatency').innerText = `${data.latencyUs} µs`;
-    document.getElementById('statClientLatency').innerText = `${clientLatencyMs} ms`;
-    document.getElementById('telemetryLatency').innerText = `${data.latencyUs} µs`;
+    // Update telemetry
+    document.getElementById('sideLatency').innerText = `${data.latencyUs} µs`;
+    document.getElementById('valServerLat').innerText = `${data.latencyUs} µs`;
+    document.getElementById('valClientLat').innerText = `${clientMs} ms`;
 
-    document.getElementById('stepL2Status').innerText = currentMode === 'rerank' ? 'Active' : 'Bypassed';
-    document.getElementById('stepFilterStatus').innerText = filterParam ? filterParam : 'None';
+    document.getElementById('flowL2Status').innerText = currentMode === 'rerank' ? 'Active' : 'Bypassed';
+    document.getElementById('flowFilterStatus').innerText = filterExpr ? filterExpr : 'Pass';
 
-    const numResults = data.results ? data.results.length : 0;
-    statsLine.innerText = `About ${numResults} results (${data.latencyUs} µs server latency | ${clientLatencyMs} ms roundtrip)`;
+    const num = data.results ? data.results.length : 0;
+    resStats.innerText = `About ${num} results (${data.latencyUs} µs server latency | ${clientMs} ms roundtrip)`;
 
     if (!data.results || data.results.length === 0) {
-      resultsList.innerHTML = `
-        <div class="g-empty-state">
-          <div class="g-empty-title">No matching documents found</div>
-          <p>Try adjusting your query or clearing active category filters.</p>
+      resList.innerHTML = `
+        <div style="padding:40px 0; color:var(--text-muted);">
+          <div style="font-size:16px; color:var(--text); margin-bottom:8px;">No matching documents found for <b>"${data.query}"</b></div>
+          <p>Suggestions: Verify keyword spelling, try broader concepts, or clear active category filters.</p>
         </div>`;
       return;
     }
 
-    resultsList.innerHTML = data.results.map((r, idx) => {
+    resList.innerHTML = data.results.map((r, i) => {
       const category = r.category || 'General';
       const year = r.year || 2024;
-      const title = extractTitle(r.content, r.docId);
+      const title = formatTitle(r.content, r.docId);
 
       return `
-        <article class="g-result-item">
-          <div class="g-result-meta">
-            <div class="g-result-favicon">${r.docId}</div>
-            <div class="g-result-source">
-              <span>corpus</span>
-              <span>›</span>
-              <span class="g-result-category">${category}</span>
-              <span>›</span>
-              <span>doc_${r.docId}</span>
-            </div>
+        <article class="res-card">
+          <div class="res-breadcrumb">
+            <div class="res-favicon">${r.docId}</div>
+            <span>https://corpus.internal</span>
+            <span>›</span>
+            <span class="res-cat-badge">${category}</span>
+            <span>›</span>
+            <span>doc_${r.docId}</span>
           </div>
-          <a class="g-result-title" onclick="recordFeedback(${r.docId}, this)">${title}</a>
-          <div class="g-result-snippet">${r.snippet || r.content}</div>
-          <div class="g-chips-row">
-            <span class="g-chip score">Rank Score: ${r.score}</span>
-            ${r.bm25Score ? `<span class="g-chip">BM25: ${r.bm25Score}</span>` : ''}
-            ${r.denseScore ? `<span class="g-chip">Dense: ${r.denseScore}</span>` : ''}
-            ${r.l1Score ? `<span class="g-chip">L1 Score: ${r.l1Score}</span>` : ''}
-            <span class="g-chip year">Year: ${year}</span>
-            <button class="g-feedback-btn" onclick="recordFeedback(${r.docId}, this)">★ Relevant</button>
+          <a class="res-title" onclick="giveFeedback(${r.docId}, this)">${title}</a>
+          <div class="res-snippet">${r.snippet || r.content}</div>
+          <div class="res-chips">
+            <span class="meta-tag score">Score: ${r.score}</span>
+            ${r.bm25Score ? `<span class="meta-tag">BM25: ${r.bm25Score}</span>` : ''}
+            ${r.denseScore ? `<span class="meta-tag">Dense: ${r.denseScore}</span>` : ''}
+            ${r.l1Score ? `<span class="meta-tag">L1: ${r.l1Score}</span>` : ''}
+            <span class="meta-tag year">Year: ${year}</span>
+            <button class="feedback-btn" onclick="giveFeedback(${r.docId}, this)">★ Relevant</button>
           </div>
         </article>
       `;
     }).join('');
 
   } catch (err) {
-    statsLine.innerText = 'Error connecting to search engine';
+    resStats.innerText = 'Error connecting to search engine';
   }
 }
 
-function extractTitle(content, docId) {
+function formatTitle(content, docId) {
   if (!content) return `Document #${docId}`;
-  const firstSentence = content.split('.')[0].trim();
-  if (firstSentence.length > 0 && firstSentence.length < 90) {
-    return firstSentence;
-  }
+  const sentence = content.split('.')[0].trim();
+  if (sentence.length > 5 && sentence.length < 85) return sentence;
   return content.substring(0, 75) + '...';
 }
 
-async function recordFeedback(docId, el) {
+async function giveFeedback(docId, el) {
   try {
     await fetch('/click', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({docId})
     });
-    const btn = el.closest('.g-result-item').querySelector('.g-feedback-btn');
+    const btn = el.closest('.res-card').querySelector('.feedback-btn');
     if (btn) {
       btn.classList.add('clicked');
       btn.innerText = '✓ Personalized';
@@ -1261,25 +1495,24 @@ async function recordFeedback(docId, el) {
   } catch (e) {}
 }
 
-// Ingestion Form
-document.getElementById('ingestForm').addEventListener('submit', async (e) => {
+// Drawer Ingestion
+document.getElementById('ingestDrawerForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const docId = parseInt(document.getElementById('inDocId').value);
-  const content = document.getElementById('inDocText').value.trim();
-  const category = document.getElementById('inDocCat').value.trim();
-
+  const docId = parseInt(document.getElementById('drawerDocId').value);
+  const content = document.getElementById('drawerDocContent').value.trim();
   if (!content) return;
 
   try {
-    const res = await fetch('/document', {
+    await fetch('/document', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({docId, content})
     });
-    document.getElementById('inDocText').value = '';
-    document.getElementById('inDocId').value = docId + 1;
-    refreshEngineStatus();
-    executeSearch();
+    document.getElementById('drawerDocContent').value = '';
+    document.getElementById('drawerDocId').value = docId + 1;
+    closeDrawer();
+    loadStatus();
+    if (resultsView.style.display === 'flex') executeSearch();
   } catch (err) {
     alert('Failed to index document');
   }
